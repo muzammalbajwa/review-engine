@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // The floating "N" badge next dev shows in the bottom-left corner —
+  // route/build info for local development only, never rendered in a
+  // production build (`next build && next start`). Disabled per request;
+  // note this also removes it for every other developer running `next
+  // dev` locally, not just this one screen.
+  devIndicators: false,
   experimental: {
     serverActions: {
       // Server Actions default to a 1MB body cap. The CSV import wizard
