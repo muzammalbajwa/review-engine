@@ -6,12 +6,96 @@ import { revalidatePath } from "next/cache";
 import { apiFetch } from "@/lib/api";
 import { clearToken, requireToken } from "@/lib/session";
 
-// Subscription type + getSubscription/toggleAutoRenew/subscribe actions
-// (Lemon Squeezy checkout + auto-renew toggle) removed with the backend's
-// /subscribe, /subscription, and /subscription/portal routes
-// (lemonsqueezy/laravel package removal). Recoverable from git history —
-// pending a Paddle-backed rebuild of SubscriptionController and these
-// actions together.
+export type Subscription = {
+  plan: string | null;
+  billing_interval: "monthly" | "annual" | null;
+  status: "pending" | "trialing" | "active" | "trial_expired" | "past_due" | "canceled";
+  // Only meaningful once a real Paddle subscription exists (status
+  // "active"/"past_due" with a subscription row) — null during
+  // trialing/trial_expired/pending, when there's nothing to renew or not
+  // renew yet.
+  auto_renew: boolean | null;
+  current_period_end: string | null;
+  ends_at: string | null;
+  trial_ends_at: string | null;
+} | null;
+
+export async function getSubscription(): Promise<{ ok: true; data: Subscription } | { ok: false }> {
+  await requireToken();
+
+  const result = await apiFetch<Subscription>("/subscription");
+
+  return result.ok ? { ok: true, data: result.data } : { ok: false };
+}
+
+// The exact shape Paddle.js's `Paddle.Checkout.open(options)` expects —
+// SubscriptionController::subscribe() returns Laravel\Paddle\Checkout::
+// options() verbatim. Typed loosely (not every Paddle.js option is
+// enumerated) since this only ever passes straight through to the
+// client-side SDK, never inspected field-by-field here.
+export type PaddleCheckoutOptions = {
+  items: Array<{ priceId: string; quantity: number }>;
+  customer?: { id: string };
+  customData?: Record<string, unknown>;
+  settings?: Record<string, unknown>;
+};
+
+export type SubscribeState =
+  | { status: "success"; checkout: PaddleCheckoutOptions }
+  | { status: "error"; message: string };
+
+/**
+ * The conversion flow — reachable from BillingSection for a tenant who is
+ * "trialing" (converting early), "trial_expired" (converting after the
+ * trial ran out), or "canceled" (subscribing again). Unlike a
+ * hosted-checkout redirect, this does NOT navigate away: POST /subscribe
+ * returns Paddle's overlay-checkout options, and the caller
+ * (SubscribeForm.tsx) opens `Paddle.Checkout.open(options)` client-side,
+ * staying on this page. Activation happens asynchronously once Paddle
+ * sends the subscription_created webhook — see .claude/BILLING.md.
+ */
+export async function subscribe(interval: "monthly" | "annual"): Promise<SubscribeState> {
+  await requireToken();
+
+  const result = await apiFetch<PaddleCheckoutOptions>("/subscribe", {
+    method: "POST",
+    body: { interval },
+  });
+
+  if (!result.ok) {
+    return { status: "error", message: result.message };
+  }
+
+  return { status: "success", checkout: result.data };
+}
+
+export type ToggleAutoRenewState =
+  | { status: "success"; subscription: Subscription }
+  | { status: "error"; message: string };
+
+/**
+ * Settings/Billing's auto-renew toggle (.claude/BILLING.md's "Auto-renew
+ * toggle" section). PATCH /subscription calls Paddle's real
+ * cancel-at-period-end (`auto_renew: false`) or undoes a scheduled one
+ * (`auto_renew: true`) — never a client-side-only flag, since the actual
+ * billing behavior lives with Paddle, not this app.
+ */
+export async function toggleAutoRenew(autoRenew: boolean): Promise<ToggleAutoRenewState> {
+  await requireToken();
+
+  const result = await apiFetch<Subscription>("/subscription", {
+    method: "PATCH",
+    body: { auto_renew: autoRenew },
+  });
+
+  if (!result.ok) {
+    return { status: "error", message: result.message };
+  }
+
+  revalidatePath("/settings");
+
+  return { status: "success", subscription: result.data };
+}
 
 export async function logout(): Promise<void> {
   await requireToken();
@@ -249,9 +333,8 @@ export async function sendTestEvent(): Promise<SendTestEventState> {
   return { status: "success", contactId: result.data.id };
 }
 
-// openBillingPortal (Lemon Squeezy's hosted billing portal link) removed
-// with the backend's /subscription/portal route — see the note above
-// getSubscription's old location.
+// openBillingPortal (Paddle's hosted customer portal link) not built yet
+// — GET /subscription/portal doesn't exist on the backend.
 
 export type TeamMember = {
   id: number;

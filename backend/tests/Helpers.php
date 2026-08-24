@@ -1,8 +1,12 @@
 <?php
 
 use App\Models\AuditLog;
+use App\Models\Campaign;
+use App\Models\Contact;
 use App\Models\GbpConnection;
+use App\Models\Message;
 use App\Models\SenderIdentity;
+use App\Models\Template;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Support\Collection;
@@ -399,4 +403,85 @@ function activatePaddleSubscriptionForTenant(string $tenantId, int $ownerId, ?st
     )->assertOk();
 
     return $subscriptionId;
+}
+
+/**
+ * A representative slice of a tenant's real, non-billing product data —
+ * one campaign, three contacts (one already sent to, two pending), one
+ * template, one message. Originally TrialExpiryDataIntegrityTest.php's
+ * own helper (moved here — a second file now needs the identical
+ * standard for the Paddle checkout/past_due/cancel-at-period-end
+ * lifecycle, same "no billing transition ever touches product data" bar
+ * as the original trial-expiry work).
+ */
+function seedTrialEraData(string $tenantId): array
+{
+    return DB::transaction(function () use ($tenantId) {
+        DB::statement('SELECT set_config(?, ?, true)', ['app.current_tenant_id', $tenantId]);
+
+        $campaign = new Campaign(['type' => 'live', 'status' => 'active']);
+        $campaign->tenant_id = $tenantId;
+        $campaign->save();
+
+        $contacts = collect(range(1, 3))->map(function (int $i) use ($tenantId, $campaign) {
+            $contact = new Contact([
+                'campaign_id' => $campaign->id,
+                'name' => "Trial Era Contact {$i}",
+                'phone' => "555-010{$i}",
+                'email' => "trial-era-{$i}@example.com",
+                'status' => $i === 1 ? 'sent' : 'pending',
+                'consent_at' => now(),
+            ]);
+            $contact->tenant_id = $tenantId;
+            $contact->save();
+
+            return $contact;
+        });
+
+        $template = new Template([
+            'campaign_id' => $campaign->id,
+            'step' => 1,
+            'body' => 'Thanks for choosing us! Please leave us a review: {{review_link}}',
+            'compliance_status' => 'pass',
+        ]);
+        $template->tenant_id = $tenantId;
+        $template->save();
+
+        $message = new Message([
+            'contact_id' => $contacts->first()->id,
+            'step' => 1,
+            'status' => 'sent',
+            'sent_at' => now(),
+            'provider_id' => 'provider-msg-'.uniqid(),
+        ]);
+        $message->tenant_id = $tenantId;
+        $message->save();
+
+        return [
+            'campaign' => $campaign,
+            'contacts' => $contacts,
+            'template' => $template,
+            'message' => $message,
+        ];
+    });
+}
+
+/**
+ * Full-table snapshot, not a targeted re-fetch of the ids we already
+ * know about — a snapshot keyed only on those same ids would be blind to
+ * exactly the kind of bug this test exists to catch (an accidental
+ * cascade delete, a stray ->delete() on the whole tenant's rows).
+ */
+function tenantDataSnapshot(string $tenantId): array
+{
+    return DB::transaction(function () use ($tenantId) {
+        DB::statement("SELECT set_config('app.is_admin', 'true', true)");
+
+        return [
+            'campaigns' => Campaign::withoutGlobalScopes()->where('tenant_id', $tenantId)->orderBy('id')->get()->toArray(),
+            'contacts' => Contact::withoutGlobalScopes()->where('tenant_id', $tenantId)->orderBy('id')->get()->toArray(),
+            'templates' => Template::withoutGlobalScopes()->where('tenant_id', $tenantId)->orderBy('id')->get()->toArray(),
+            'messages' => Message::withoutGlobalScopes()->where('tenant_id', $tenantId)->orderBy('id')->get()->toArray(),
+        ];
+    });
 }

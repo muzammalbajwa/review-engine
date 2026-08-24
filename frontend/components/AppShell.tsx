@@ -62,6 +62,14 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
     apiFetch<OnboardingStatus>("/onboarding/status"),
   ]);
   const trialExpired = tenantResult.ok && tenantResult.data.status === "trial_expired";
+  // Distinct from trialExpired: past_due does NOT block sending
+  // (Tenant::sendingBlockedReason() has no branch for it —
+  // .claude/BILLING.md's dunning design), so this is an informational
+  // notice, not a blocking one. Mutually exclusive with trialExpired by
+  // construction (tenant.status is one value), but kept as its own
+  // independent slot below rather than an if/else, same reasoning as
+  // every other banner flag here.
+  const pastDue = tenantResult.ok && tenantResult.data.status === "past_due";
   // Same "fail silent, no banner" reasoning as trialExpired above — a
   // transient /tenant fetch error should never surface a spurious
   // "verify your email" nudge, and the real gate (RequireSendingAccess)
@@ -98,6 +106,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
       isAdmin={isAdmin}
       permissions={permissions}
       trialExpired={trialExpired}
+      pastDue={pastDue}
       emailUnverified={emailUnverified}
       renewalReminder={renewalReminder}
       hasCompletedWelcomeTour={hasCompletedWelcomeTour}

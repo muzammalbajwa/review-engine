@@ -7,14 +7,15 @@ import { startTrial } from "./actions";
 
 /**
  * The 7-day free trial's onboarding UI (.claude/BILLING.md: "do NOT
- * create a Lemon Squeezy Customer/Subscription at trial start... no card,
- * no Lemon Squeezy call"). No checkout redirect here at all — that's the
- * whole point of this step now. Billing interval (monthly/annual) and
- * card collection both move to Settings/Billing's conversion flow
- * (BillingSection.tsx/SubscribeForm.tsx), reached only once a tenant
- * actually wants to pay, whether that's right away or after the trial
- * ends — there's nothing to choose here since there's only one plan
- * (.claude/BILLING.md's single-plan pricing change).
+ * create a Paddle Customer/Subscription at trial start... no card, no
+ * Paddle call"). No checkout overlay here at all — that's the whole
+ * point of this step now. Billing interval (monthly/annual) and card
+ * collection both move to Settings/Billing's conversion flow
+ * (BillingSection.tsx/SubscribeForm.tsx, Paddle's overlay checkout),
+ * reached only once a tenant actually wants to pay, whether that's right
+ * away or after the trial ends — there's nothing to choose here since
+ * there's only one plan (.claude/BILLING.md's single-plan pricing
+ * change).
  */
 export function PlanSelector({ onStarted }: { onStarted: () => void }) {
   const [error, setError] = useState<string | null>(null);

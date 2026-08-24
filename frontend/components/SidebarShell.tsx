@@ -84,6 +84,7 @@ export function SidebarShell({
   isAdmin,
   permissions,
   trialExpired,
+  pastDue,
   emailUnverified,
   renewalReminder,
   hasCompletedWelcomeTour,
@@ -98,6 +99,12 @@ export function SidebarShell({
   // roles, no separate isOwner check needed here.
   permissions: Permissions;
   trialExpired: boolean;
+  // Distinct from trialExpired — see PastDueBanner's own docblock for
+  // why this is gold/informational, not destructive/blocking. Mutually
+  // exclusive with trialExpired by construction (tenant.status is one
+  // value), independent slot below for the same reason every other
+  // banner flag here is.
+  pastDue: boolean;
   // The "add email verification" decision doc: true whenever
   // sending_blocked_reason === "email_unverified" — mutually exclusive
   // with trialExpired by construction (Tenant::sendingBlockedReason()
@@ -314,6 +321,7 @@ export function SidebarShell({
 
       <div className="flex min-w-0 flex-1 flex-col">
         {trialExpired && <TrialExpiredBanner />}
+        {pastDue && <PastDueBanner />}
         {emailUnverified && <EmailUnverifiedBanner />}
         {renewalReminder && <RenewalReminderBanner reminder={renewalReminder} />}
         <div className="min-w-0 flex-1">{children}</div>
@@ -346,6 +354,34 @@ function TrialExpiredBanner() {
         className="shrink-0 rounded-sm font-medium underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         Subscribe now
+      </Link>
+    </div>
+  );
+}
+
+/**
+ * Distinct from TrialExpiredBanner on purpose — gold/warning, not
+ * destructive red, and role="status" not "alert": a payment Paddle is
+ * still retrying is not a block. Tenant::sendingBlockedReason() has no
+ * branch for past_due (.claude/BILLING.md's dunning design — confirmed
+ * decision, not an oversight), so sending review requests keeps working
+ * the whole time this banner shows. Same visual treatment
+ * RenewalReminderBanner uses for the same DESIGN.md reason ("destructive
+ * red... nowhere except an actual compliance-blocked state or a real
+ * error").
+ */
+function PastDueBanner() {
+  return (
+    <div
+      role="status"
+      className="flex flex-wrap items-center justify-between gap-3 border-b border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground"
+    >
+      <span>Your last payment didn&apos;t go through — we&apos;re automatically retrying. Sending still works.</span>
+      <Link
+        href="/settings?tab=billing"
+        className="shrink-0 rounded-sm font-medium underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        Review billing
       </Link>
     </div>
   );
