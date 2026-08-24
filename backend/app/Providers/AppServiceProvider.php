@@ -2,14 +2,11 @@
 
 namespace App\Providers;
 
-use App\Models\Customer;
-use App\Models\Subscription;
 use App\Support\Tenancy\CurrentTenant;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
-use LemonSqueezy\Laravel\LemonSqueezy;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -20,26 +17,15 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->singleton(CurrentTenant::class);
 
-        LemonSqueezy::useSubscriptionModel(Subscription::class);
-        LemonSqueezy::useCustomerModel(Customer::class);
-
-        // Must happen in register(), not boot(): every provider's
-        // register() runs before ANY provider's boot(), but provider boot
-        // ORDER isn't guaranteed — LemonSqueezyServiceProvider::boot()
-        // (which reads LemonSqueezy::$registersRoutes to decide whether to
-        // register its own /lemon-squeezy/webhook route) could run before
-        // this provider's boot() does. Confirmed by `php artisan
-        // route:list`: calling this from boot() left the package's own
-        // route registered anyway. The package auto-registers that route
-        // with no tenant-context resolution at all —
-        // LemonSqueezyWebhookController is the one enforced entry point
-        // instead (routes/api.php), which resolves tenant_id from the
-        // checkout's custom_data and sets RLS context *before* delegating
-        // to the package's own webhook processing. A second, unprotected
-        // route to the same underlying logic would be a real
-        // cross-tenant-write risk if ever hit directly, so it's disabled
-        // outright rather than left dormant.
-        LemonSqueezy::ignoreRoutes();
+        // Lemon Squeezy's model/route registration (LemonSqueezy::
+        // useSubscriptionModel()/useCustomerModel()/ignoreRoutes()) was
+        // here — removed with the lemonsqueezy/laravel package. Whatever
+        // processor replaces it (Paddle) will need the equivalent
+        // registration, including the same "disable the package's own
+        // auto-registered webhook route, route through our own
+        // tenant-context-resolving controller instead" requirement this
+        // enforced — see the deleted LemonSqueezyWebhookController's
+        // docblock (recoverable from git history) for why that mattered.
     }
 
     /**

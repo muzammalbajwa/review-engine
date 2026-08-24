@@ -4,7 +4,6 @@ use App\Models\Campaign;
 use App\Models\Contact;
 use App\Models\Message;
 use App\Models\SenderIdentity;
-use App\Models\Subscription;
 use App\Models\Tenant;
 use App\Models\TimingRule;
 use App\Models\User;
@@ -23,7 +22,7 @@ use Laravel\Sanctum\PersonalAccessToken;
  * the same set_config() call SetTenantContext makes, and the same
  * CurrentTenant singleton TenantScope reads.
  */
-function seedTenantWithUserAndSubscription(string $name): array
+function seedTenantWithUser(string $name): array
 {
     return DB::transaction(function () use ($name) {
         $tenantId = (string) Str::uuid();
@@ -42,19 +41,7 @@ function seedTenantWithUserAndSubscription(string $name): array
         $user->role = 'owner';
         $user->save();
 
-        $subscription = new Subscription([
-            'type' => 'default',
-            'lemon_squeezy_id' => 'sub_'.Str::random(14),
-            'status' => 'active',
-            'product_id' => 'product_test_placeholder',
-            'variant_id' => 'variant_test_placeholder',
-        ]);
-        $subscription->billable_id = $user->id;
-        $subscription->billable_type = $user->getMorphClass();
-        $subscription->tenant_id = $tenantId;
-        $subscription->save();
-
-        return [$tenant, $user, $subscription];
+        return [$tenant, $user];
     });
 }
 
@@ -78,36 +65,29 @@ function actingAsTenant(string $tenantId, callable $callback): mixed
     });
 }
 
-test('as Tenant A, reads against Tenant B users and subscriptions return nothing (app scope active)', function () {
-    [$tenantA] = seedTenantWithUserAndSubscription('Tenant A Read');
-    [$tenantB, $userB, $subscriptionB] = seedTenantWithUserAndSubscription('Tenant B Read');
+test('as Tenant A, reads against Tenant B users return nothing (app scope active)', function () {
+    [$tenantA] = seedTenantWithUser('Tenant A Read');
+    [$tenantB, $userB] = seedTenantWithUser('Tenant B Read');
 
-    actingAsTenant($tenantA->id, function () use ($userB, $subscriptionB) {
+    actingAsTenant($tenantA->id, function () use ($userB) {
         expect(User::find($userB->id))->toBeNull();
         expect(User::where('email', $userB->email)->first())->toBeNull();
         expect(User::all()->pluck('id'))->not->toContain($userB->id);
-
-        expect(Subscription::find($subscriptionB->id))->toBeNull();
-        expect(Subscription::where('lemon_squeezy_id', $subscriptionB->lemon_squeezy_id)->first())->toBeNull();
     });
 });
 
-test('as Tenant A, writes against Tenant B users and subscriptions affect nothing (app scope active)', function () {
-    [$tenantA] = seedTenantWithUserAndSubscription('Tenant A Write');
-    [$tenantB, $userB, $subscriptionB] = seedTenantWithUserAndSubscription('Tenant B Write');
+test('as Tenant A, writes against Tenant B users affect nothing (app scope active)', function () {
+    [$tenantA] = seedTenantWithUser('Tenant A Write');
+    [$tenantB, $userB] = seedTenantWithUser('Tenant B Write');
 
-    actingAsTenant($tenantA->id, function () use ($userB, $subscriptionB) {
+    actingAsTenant($tenantA->id, function () use ($userB) {
         $updated = User::where('id', $userB->id)->update(['name' => 'Hacked By Tenant A']);
         expect($updated)->toBe(0);
-
-        $deleted = Subscription::where('id', $subscriptionB->id)->delete();
-        expect($deleted)->toBe(0);
     });
 
     // Confirm from Tenant B's own perspective that nothing actually changed.
-    actingAsTenant($tenantB->id, function () use ($userB, $subscriptionB) {
+    actingAsTenant($tenantB->id, function () use ($userB) {
         expect(User::find($userB->id)->name)->toBe($userB->name);
-        expect(Subscription::find($subscriptionB->id))->not->toBeNull();
     });
 });
 
@@ -116,29 +96,29 @@ test('as Tenant A, writes against Tenant B users and subscriptions affect nothin
  * TenantScope (withoutGlobalScopes) and even skips Eloquent entirely for
  * some assertions (raw DB::table()) — if Postgres RLS weren't independently
  * enforcing isolation, every one of these would leak Tenant B's data.
+ *
+ * Previously also covered `subscriptions`/`lemon_squeezy_subscriptions` —
+ * removed with the Lemon Squeezy package (App\Models\Subscription no
+ * longer exists). Re-add equivalent RLS-bypass coverage for whatever
+ * Paddle-backed subscription table replaces it; this gap is real, not
+ * intentional.
  */
-test('CRITICAL: RLS alone blocks Tenant B users and subscriptions when the app-layer scope is bypassed', function () {
-    [$tenantA] = seedTenantWithUserAndSubscription('RLS Bypass Tenant A');
-    [$tenantB, $userB, $subscriptionB] = seedTenantWithUserAndSubscription('RLS Bypass Tenant B');
+test('CRITICAL: RLS alone blocks Tenant B users when the app-layer scope is bypassed', function () {
+    [$tenantA] = seedTenantWithUser('RLS Bypass Tenant A');
+    [$tenantB, $userB] = seedTenantWithUser('RLS Bypass Tenant B');
 
-    actingAsTenant($tenantA->id, function () use ($userB, $subscriptionB) {
+    actingAsTenant($tenantA->id, function () use ($userB) {
         // Eloquent, global scope explicitly removed.
         expect(User::withoutGlobalScopes()->find($userB->id))->toBeNull();
         expect(User::withoutGlobalScopes()->where('email', $userB->email)->first())->toBeNull();
-        expect(Subscription::withoutGlobalScopes()->find($subscriptionB->id))->toBeNull();
-        expect(Subscription::withoutGlobalScopes()->where('lemon_squeezy_id', $subscriptionB->lemon_squeezy_id)->first())->toBeNull();
 
         $updated = User::withoutGlobalScopes()->where('id', $userB->id)->update(['name' => 'Hacked-RLS-Bypass']);
         expect($updated)->toBe(0);
-
-        $deleted = Subscription::withoutGlobalScopes()->where('id', $subscriptionB->id)->delete();
-        expect($deleted)->toBe(0);
 
         // No Eloquent at all — raw query builder against the same
         // connection. Proves this is a database guarantee, not something
         // Eloquent is adding on top that a raw query could route around.
         expect(DB::table('users')->where('id', $userB->id)->first())->toBeNull();
-        expect(DB::table('lemon_squeezy_subscriptions')->where('id', $subscriptionB->id)->first())->toBeNull();
         expect(DB::table('users')->where('id', $userB->id)->update(['name' => 'Hacked-Raw-SQL']))->toBe(0);
     });
 

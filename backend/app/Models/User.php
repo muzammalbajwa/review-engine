@@ -14,7 +14,6 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Laravel\Sanctum\NewAccessToken;
-use LemonSqueezy\Laravel\Billable;
 
 /**
  * .claude/SECURITY.md #3 / the "add email verification" decision doc:
@@ -29,7 +28,7 @@ use LemonSqueezy\Laravel\Billable;
 class User extends Authenticatable implements MustVerifyEmailContract
 {
     /** @use HasFactory<UserFactory> */
-    use BelongsToTenant, Billable, HasApiTokens, HasFactory, MustVerifyEmail, Notifiable;
+    use BelongsToTenant, HasApiTokens, HasFactory, MustVerifyEmail, Notifiable;
 
     /**
      * The attributes that are mass assignable.

@@ -48,7 +48,7 @@ class SenderIdentityController extends Controller
     /**
      * Public route (named `sender-identities.verify`, `signed` middleware)
      * — clicked from an email, so it carries no Sanctum bearer token, the
-     * same class of exception as /gbp/callback and /lemon-squeezy/webhook. The
+     * same class of exception as /gbp/callback. The
      * signed URL itself encodes the tenant id (not just the sender row
      * id): reading a tenant-scoped, RLS-protected row here has the same
      * bootstrapping problem SetTenantContext/GbpOAuthState solve — there's

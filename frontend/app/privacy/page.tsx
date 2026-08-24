@@ -193,11 +193,6 @@ export default function PrivacyPage() {
             <ProcessorTable
               rows={[
                 {
-                  name: "Lemon Squeezy",
-                  purpose: "Payment processing and billing (our merchant of record).",
-                  data: "Tenant billing contact details and payment info. We never receive or store your card number — Lemon Squeezy's own hosted checkout collects it directly.",
-                },
-                {
                   name: "Resend",
                   purpose: "Delivers the review-request emails your end-customers receive, and our own transactional emails to you.",
                   data: "The recipient email address and the message content for a given send.",
@@ -219,6 +214,12 @@ export default function PrivacyPage() {
                 },
               ]}
             />
+            <LegalReviewNote>
+              this table previously listed Lemon Squeezy as our payment sub-processor. That integration has
+              been removed while we switch payment providers — no payment processor is currently live. Add
+              the new processor&apos;s row back here (with an accurate purpose/data description for however
+              it actually collects and stores payment info) before re-enabling paid subscriptions.
+            </LegalReviewNote>
             <p>
               We may also disclose data if legally required to (a court order or valid legal process), or
               to protect the rights, property, or safety of ReviewEngine, our tenants, or the public.

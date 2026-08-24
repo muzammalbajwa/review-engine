@@ -3,9 +3,7 @@
 use App\Models\Campaign;
 use App\Models\Contact;
 use App\Models\GbpConnection;
-use App\Models\Subscription;
 use App\Models\Tenant;
-use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -70,26 +68,16 @@ test('status reflects a tenant on a free trial', function () {
 test('status reflects a tenant who has actually converted to a real subscription', function () {
     [$token, $tenantId] = registerAndGetTokenForOnboarding('Converted Onboarding');
 
-    // Mirrors exactly what SubscriptionController::subscribe does
-    // atomically on real conversion — plan/status only ever move together,
-    // never a raw Subscription row on its own (see the test this replaced:
-    // creating a Subscription row without also flipping tenant.status is
-    // no longer a real, reachable state in this app).
+    // Mirrors exactly what SubscriptionController::subscribe does on real
+    // conversion — plan/status/billing_interval, the only facts
+    // OnboardingController reads ('subscribed' means "picked a plan",
+    // never a direct check against a Subscription row). Previously also
+    // created a matching lemonsqueezy/laravel Subscription row here to
+    // mirror the realistic full state; removed with the package
+    // (App\Models\Subscription no longer exists) — this test's actual
+    // assertions never touched that row, so no coverage is lost.
     DB::transaction(function () use ($tenantId) {
         DB::statement('SELECT set_config(?, ?, true)', ['app.current_tenant_id', $tenantId]);
-
-        $user = User::query()->first();
-        $subscription = new Subscription([
-            'type' => 'default',
-            'lemon_squeezy_id' => 'sub_'.uniqid(),
-            'status' => 'active',
-            'product_id' => 'product_test_placeholder',
-            'variant_id' => 'variant_monthly_placeholder',
-        ]);
-        $subscription->billable_id = $user->id;
-        $subscription->billable_type = $user->getMorphClass();
-        $subscription->tenant_id = $tenantId;
-        $subscription->save();
 
         $tenant = Tenant::find($tenantId);
         $tenant->plan = 'standard';

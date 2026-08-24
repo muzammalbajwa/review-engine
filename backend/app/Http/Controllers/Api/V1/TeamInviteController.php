@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Hash;
 
 /**
  * Public — no Sanctum bearer token exists yet (same class of exception as
- * /register, /gbp/callback, /lemon-squeezy/webhook). Both actions look up
+ * /register, /gbp/callback). Both actions look up
  * a TeamInvite by its token ALONE, before any tenant is known — the same
  * bootstrapping problem AuthController::login()'s email lookup solves,
  * solved the same way: a narrow, set-immediately-before/cleared-

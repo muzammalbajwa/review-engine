@@ -200,8 +200,8 @@ class AuthController extends Controller
     /**
      * Public route (named `verification.verify`, `signed` middleware) —
      * clicked from an email, so it carries no Sanctum bearer token, same
-     * class of exception as /gbp/callback, /lemon-squeezy/webhook,
-     * sender-identities.verify. Deliberately NOT
+     * class of exception as /gbp/callback, sender-identities.verify.
+     * Deliberately NOT
      * Illuminate\Foundation\Auth\EmailVerificationRequest: that class's
      * authorize() calls $this->user() — it assumes the web session guard
      * already knows who's asking, which fits Breeze/Jetstream's

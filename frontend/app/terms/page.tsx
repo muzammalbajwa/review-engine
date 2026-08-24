@@ -138,12 +138,13 @@ export default function TermsPage() {
               Nothing is deleted when a trial ends.
             </p>
             <h3 className="mt-4 font-heading text-lg font-semibold text-foreground">Payment processing</h3>
-            <p>
-              Paid subscriptions are processed by Lemon Squeezy, our merchant of record, through their
-              own hosted checkout. We never receive or store your full card number — Lemon Squeezy
-              handles payment collection, and, as merchant of record, sales tax/VAT collection and
-              remittance where applicable.
-            </p>
+            <LegalReviewNote>
+              this section previously named Lemon Squeezy as our merchant of record. That integration has
+              been removed while we switch payment providers — paid subscriptions cannot currently be
+              purchased or renewed through the product. Replace this section with the new processor&apos;s
+              actual name and role (merchant of record vs. payment facilitator changes what we can honestly
+              claim about who handles sales tax/VAT) before re-enabling paid subscriptions.
+            </LegalReviewNote>
             <h3 className="mt-4 font-heading text-lg font-semibold text-foreground">
               Renewal & cancellation
             </h3>
@@ -218,10 +219,6 @@ export default function TermsPage() {
                 profile requires you to comply with Google&apos;s own terms and review policies. If
                 Google changes or restricts its API, or suspends your Business Profile for reasons
                 outside our control, review syncing/posting may stop working through no fault of ours.
-              </li>
-              <li>
-                <strong className="text-foreground">Lemon Squeezy</strong> — governs the actual payment
-                transaction under its own terms as merchant of record.
               </li>
               <li>
                 <strong className="text-foreground">Zapier / Make.com</strong> — if you connect one of

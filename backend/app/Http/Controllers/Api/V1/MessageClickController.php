@@ -12,8 +12,8 @@ use Illuminate\Http\Request;
 /**
  * Public, unauthenticated (GET /api/v1/click/{token}) — clicked straight
  * out of a real customer's inbox, so it carries no Sanctum bearer token,
- * same class of exception as /gbp/callback, /lemon-squeezy/webhook, and the
- * sender-identity verify link. ResolveMessageClickTenant (route
+ * same class of exception as /gbp/callback and the sender-identity verify
+ * link. ResolveMessageClickTenant (route
  * middleware) has already format-validated the token, resolved the
  * owning tenant, and activated real tenant context by the time this
  * method runs — everything below queries under the normal, non-bypass

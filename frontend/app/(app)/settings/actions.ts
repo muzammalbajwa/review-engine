@@ -6,82 +6,12 @@ import { revalidatePath } from "next/cache";
 import { apiFetch } from "@/lib/api";
 import { clearToken, requireToken } from "@/lib/session";
 
-export type Subscription = {
-  plan: string | null;
-  billing_interval: "monthly" | "annual" | null;
-  status: "pending" | "trialing" | "active" | "trial_expired" | "canceled";
-  // Only meaningful once a real Lemon Squeezy subscription exists (status
-  // 'active' with a subscription row) — null during trialing/trial_expired/
-  // pending, when there's nothing to renew or not renew yet.
-  auto_renew: boolean | null;
-  current_period_end: string | null;
-  ends_at: string | null;
-  trial_ends_at: string | null;
-} | null;
-
-export async function getSubscription(): Promise<{ ok: true; data: Subscription } | { ok: false }> {
-  await requireToken();
-
-  const result = await apiFetch<Subscription>("/subscription");
-
-  return result.ok ? { ok: true, data: result.data } : { ok: false };
-}
-
-export type ToggleAutoRenewState =
-  | { status: "success"; subscription: Subscription }
-  | { status: "error"; message: string };
-
-/**
- * Settings/Billing's auto-renew toggle (.claude/BILLING.md's "Auto-renew
- * toggle" section). PATCH /subscription calls Lemon Squeezy's real
- * cancel-at-period-end (`auto_renew: false`) or resume (`auto_renew: true`)
- * — never a client-side-only flag, since the actual billing behavior lives
- * with Lemon Squeezy, not this app.
- */
-export async function toggleAutoRenew(autoRenew: boolean): Promise<ToggleAutoRenewState> {
-  await requireToken();
-
-  const result = await apiFetch<Subscription>("/subscription", {
-    method: "PATCH",
-    body: { auto_renew: autoRenew },
-  });
-
-  if (!result.ok) {
-    return { status: "error", message: result.message };
-  }
-
-  revalidatePath("/settings");
-
-  return { status: "success", subscription: result.data };
-}
-
-export type SubscribeState = { status: "error"; message: string };
-
-/**
- * The conversion flow — reachable from BillingSection for a tenant who is
- * 'trialing' (converting early) or 'trial_expired' (converting after the
- * trial ran out). Unlike the old Stripe flow, this does NOT activate the
- * tenant itself: Lemon Squeezy has no server-side "charge this payment
- * method now" API, only hosted checkout (.claude/BILLING.md). POST
- * /subscribe returns a checkout URL; a successful call always ends in a
- * redirect there (same "server action either redirects or returns an
- * error state" shape openBillingPortal uses below) — activation happens
- * asynchronously once Lemon Squeezy sends the webhook back.
- */
-export async function subscribe(interval: "monthly" | "annual"): Promise<SubscribeState | void> {
-  await requireToken();
-
-  const result = await apiFetch<{ checkout_url: string }>("/subscribe", {
-    method: "POST",
-    body: { interval },
-  });
-
-  if (!result.ok) {
-    return { status: "error", message: result.message };
-  }
-
-  redirect(result.data.checkout_url);
-}
+// Subscription type + getSubscription/toggleAutoRenew/subscribe actions
+// (Lemon Squeezy checkout + auto-renew toggle) removed with the backend's
+// /subscribe, /subscription, and /subscription/portal routes
+// (lemonsqueezy/laravel package removal). Recoverable from git history —
+// pending a Paddle-backed rebuild of SubscriptionController and these
+// actions together.
 
 export async function logout(): Promise<void> {
   await requireToken();
@@ -315,26 +245,9 @@ export async function sendTestEvent(): Promise<SendTestEventState> {
   return { status: "success", contactId: result.data.id };
 }
 
-export type BillingPortalState = { status: "error"; message: string };
-
-/**
- * Always ends in a redirect to Lemon Squeezy's real hosted portal on success —
- * same "server action either redirects or returns an error state" shape
- * as app/gbp/actions.ts's startGbpConnect, just returning the error
- * instead of redirecting back to the same page with a query param, so a
- * failure shows inline without a page navigation.
- */
-export async function openBillingPortal(): Promise<BillingPortalState | void> {
-  await requireToken();
-
-  const result = await apiFetch<{ url: string }>("/subscription/portal");
-
-  if (!result.ok) {
-    return { status: "error", message: result.message };
-  }
-
-  redirect(result.data.url);
-}
+// openBillingPortal (Lemon Squeezy's hosted billing portal link) removed
+// with the backend's /subscription/portal route — see the note above
+// getSubscription's old location.
 
 export type TeamMember = {
   id: number;

@@ -1,6 +1,5 @@
 import { apiFetch } from "@/lib/api";
 import { requireToken } from "@/lib/session";
-import { BillingBreakdownCard, type BillingBreakdown } from "./BillingBreakdownCard";
 import { TenantsTable } from "./TenantsTable";
 
 type Tenant = {
@@ -19,21 +18,16 @@ type Tenant = {
  * empty page. Chrome (the read-only banner, admin nav) comes from
  * app/admin/layout.tsx, not this page.
  *
- * Billing breakdown fetched here too, not a separate page — the closest
- * "cross-tenant view" to a monthly/annual/MRR/ARR summary is this same
- * all-tenants overview, not a new admin nav destination for one card.
- * Failing independently of the tenants list (each its own try): a broken
- * breakdown read shouldn't hide the tenant table someone came here for,
- * same "each section fails independently" convention Settings already
- * uses.
+ * The billing breakdown card that used to sit above the tenants table
+ * (GET /admin/billing-breakdown, AdminBillingController) was removed with
+ * the Lemon Squeezy package — it aggregated against
+ * lemon_squeezy_subscriptions, which no longer exists. Pending a
+ * Paddle-backed rebuild.
  */
 export default async function AdminTenantsPage() {
   await requireToken();
 
-  const [tenantsResult, billingResult] = await Promise.all([
-    apiFetch<Tenant[]>("/admin/tenants"),
-    apiFetch<BillingBreakdown>("/admin/billing-breakdown"),
-  ]);
+  const tenantsResult = await apiFetch<Tenant[]>("/admin/tenants");
 
   return (
     <main className="flex justify-center p-8">
@@ -41,23 +35,9 @@ export default async function AdminTenantsPage() {
         <h1 className="mb-6 text-lg font-semibold">All tenants</h1>
 
         {!tenantsResult.ok ? (
-          // Both reads hit the exact same admin gate (TenantPolicy::viewAny)
-          // — a non-admin's request fails both identically, so this one
-          // error covers the whole page rather than repeating the same
-          // "you're not an admin" message twice.
           <AdminAccessError status={tenantsResult.status} message={tenantsResult.message} />
         ) : (
-          <>
-            <div className="mb-6">
-              {billingResult.ok ? (
-                <BillingBreakdownCard breakdown={billingResult.data} />
-              ) : (
-                <AdminAccessError status={billingResult.status} message={billingResult.message} />
-              )}
-            </div>
-
-            <TenantsTable tenants={tenantsResult.data} />
-          </>
+          <TenantsTable tenants={tenantsResult.data} />
         )}
       </div>
     </main>

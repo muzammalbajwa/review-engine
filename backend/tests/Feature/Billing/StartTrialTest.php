@@ -1,7 +1,6 @@
 <?php
 
 use App\Models\Tenant;
-use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -71,16 +70,15 @@ test('starting a trial sets trial_started_at, trial_ends_at (+7 days), status=tr
     // Exactly 7 days after trial_started_at, not "now" at assertion time.
     expect($tenant->trial_ends_at->diffInSeconds($tenant->trial_started_at->copy()->addDays(7)))->toBeLessThan(2);
 
-    // No Lemon Squeezy customer/subscription exists — the entire point of
-    // this decision. The `customer` relation (Billable::customer(), a
-    // MorphOne on lemon_squeezy_customers) is never populated by this
-    // endpoint.
-    $hasCustomer = DB::transaction(function () use ($tenantId) {
-        DB::statement('SELECT set_config(?, ?, true)', ['app.current_tenant_id', $tenantId]);
-
-        return User::query()->first()->customer !== null;
-    });
-    expect($hasCustomer)->toBeFalse();
+    // Previously also asserted no Lemon Squeezy customer/subscription
+    // exists via User::customer() (Billable::customer(), a MorphOne on
+    // lemon_squeezy_customers) — removed with the Lemon Squeezy package
+    // (Billable trait no longer on User, lemon_squeezy_customers table
+    // dropped). The assertion is now structurally guaranteed rather than
+    // something to check: no billing-object relation exists on User at
+    // all right now. Re-add an equivalent "trial start touches no
+    // billing object" assertion once a Paddle-backed customer/
+    // subscription relation exists to check against.
 });
 
 test('a tenant who already picked a plan cannot start a trial again', function () {

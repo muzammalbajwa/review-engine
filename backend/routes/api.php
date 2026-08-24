@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Admin\AdminAuditLogController;
-use App\Http\Controllers\Api\V1\Admin\AdminBillingController;
 use App\Http\Controllers\Api\V1\Admin\AdminSystemController;
 use App\Http\Controllers\Api\V1\Admin\AdminTenantController;
 use App\Http\Controllers\Api\V1\AnalyticsController;
@@ -10,13 +9,11 @@ use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ContactController;
 use App\Http\Controllers\Api\V1\GbpController;
 use App\Http\Controllers\Api\V1\HealthController;
-use App\Http\Controllers\Api\V1\LemonSqueezyWebhookController;
 use App\Http\Controllers\Api\V1\MessageClickController;
 use App\Http\Controllers\Api\V1\OnboardingController;
 use App\Http\Controllers\Api\V1\QuickAddController;
 use App\Http\Controllers\Api\V1\ReviewController;
 use App\Http\Controllers\Api\V1\SenderIdentityController;
-use App\Http\Controllers\Api\V1\SubscriptionController;
 use App\Http\Controllers\Api\V1\TeamController;
 use App\Http\Controllers\Api\V1\TeamInviteController;
 use App\Http\Controllers\Api\V1\TemplateController;
@@ -24,7 +21,6 @@ use App\Http\Controllers\Api\V1\TenantController;
 use App\Http\Controllers\Api\V1\TourController;
 use App\Http\Controllers\Api\V1\WebhookContactController;
 use Illuminate\Support\Facades\Route;
-use LemonSqueezy\Laravel\Http\Middleware\VerifyWebhookSignature;
 
 Route::prefix('v1')->group(function () {
     Route::get('/health', HealthController::class);
@@ -49,12 +45,11 @@ Route::prefix('v1')->group(function () {
     Route::post('/email/verification-notification', [AuthController::class, 'resendVerificationEmail'])
         ->middleware(['tenant', 'throttle:6,1']);
 
-    // Billing is owner-only — never grantable to a member under any
-    // permission combination (see EnsureTenantOwner's own docblock).
-    Route::post('/subscribe', [SubscriptionController::class, 'subscribe'])->middleware(['tenant', 'owner']);
-    Route::get('/subscription', [SubscriptionController::class, 'show'])->middleware(['tenant', 'owner']);
-    Route::patch('/subscription', [SubscriptionController::class, 'update'])->middleware(['tenant', 'owner']);
-    Route::get('/subscription/portal', [SubscriptionController::class, 'portal'])->middleware(['tenant', 'owner']);
+    // Billing routes (POST /subscribe, GET/PATCH /subscription,
+    // GET /subscription/portal) removed with the Lemon Squeezy package —
+    // pending a Paddle-backed SubscriptionController rebuild. Billing
+    // stays owner-only when it comes back (see EnsureTenantOwner's own
+    // docblock), same as team management below.
 
     Route::get('/tenant', [TenantController::class, 'show'])->middleware('tenant');
     Route::patch('/tenant', [TenantController::class, 'update'])->middleware('tenant');
@@ -144,7 +139,7 @@ Route::prefix('v1')->group(function () {
 
     Route::get('/gbp/status', [GbpController::class, 'status'])->middleware('tenant');
     Route::get('/gbp/connect', [GbpController::class, 'connect'])->middleware('tenant');
-    // Public — API.md's other documented exception alongside stripe/webhook.
+    // Public — one of API.md's documented no-Sanctum-auth exceptions.
     // Google's redirect back here carries no Sanctum bearer token; tenant
     // identity comes from the signed state parameter instead
     // (App\Services\Gbp\GbpOAuthState), never from request input directly.
@@ -191,7 +186,7 @@ Route::prefix('v1')->group(function () {
     });
 
     // Public, signed — clicked from an email, carries no Sanctum bearer
-    // token (same class of exception as /gbp/callback, /stripe/webhook).
+    // token (same class of exception as /gbp/callback).
     // The signature covers the {tenant} parameter itself, so tampering
     // with it invalidates the link outright (verified by the `signed`
     // middleware before this route's controller ever runs).
@@ -201,19 +196,11 @@ Route::prefix('v1')->group(function () {
         ->where('tenant', '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}')
         ->where('sender', '[0-9]+');
 
-    // No Sanctum auth (API.md's one documented exception) — authenticated
-    // instead by Lemon Squeezy's own signature, applied unconditionally
-    // here (not conditionally inside the package's WebhookController
-    // constructor, which only attaches it when signing_secret happens to
-    // be truthy — a missing/misconfigured LEMON_SQUEEZY_SIGNING_SECRET
-    // would otherwise silently accept any payload unverified, same
-    // "fail closed, not open" reasoning the old StripeWebhookController
-    // override existed for). The only entry point Lemon Squeezy is ever
-    // told to call — see AppServiceProvider's LemonSqueezy::ignoreRoutes()
-    // and LemonSqueezyWebhookController's own docblock for why the
-    // package's auto-registered /lemon-squeezy/webhook is disabled.
-    Route::post('/lemon-squeezy/webhook', LemonSqueezyWebhookController::class)
-        ->middleware(VerifyWebhookSignature::class);
+    // POST /lemon-squeezy/webhook removed with the Lemon Squeezy package
+    // (LemonSqueezyWebhookController deleted). API.md's "no Sanctum auth"
+    // exception list needs a new entry once the Paddle webhook route is
+    // built — same "fail closed on a missing/misconfigured signing
+    // secret" requirement this route enforced, not a lesser standard.
 
     // UUID constraint on {tenant}: a malformed ID must never reach the
     // controller's ::uuid-casting RLS query (an invalid cast throws a raw
@@ -226,6 +213,8 @@ Route::prefix('v1')->group(function () {
             ->where('tenant', '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}');
         Route::get('/audit-log', [AdminAuditLogController::class, 'index']);
         Route::get('/system', [AdminSystemController::class, 'status']);
-        Route::get('/billing-breakdown', [AdminBillingController::class, 'breakdown']);
+        // GET /billing-breakdown removed with AdminBillingController —
+        // depended on the Lemon Squeezy-backed Subscription model.
+        // Pending a Paddle-backed rebuild.
     });
 });

@@ -4,7 +4,6 @@ import { apiFetch } from "@/lib/api";
 import { requireToken } from "@/lib/session";
 import type { GbpStatus } from "../gbp/actions";
 import { ApiKeysSection } from "./ApiKeysSection";
-import { BillingSection } from "./BillingSection";
 import { BusinessProfileSection } from "./BusinessProfileSection";
 import { IntegrationLinksSection } from "./IntegrationLinksSection";
 import { QuickAddLinkSection } from "./QuickAddLinkSection";
@@ -12,10 +11,7 @@ import { SenderIdentitiesSection } from "./SenderIdentitiesSection";
 import { SettingsTabs } from "./SettingsTabs";
 import { TeamSection } from "./TeamSection";
 import { WebhookActivitySection } from "./WebhookActivitySection";
-import type { ApiKey, SenderIdentity, Subscription, Team, Tenant, WebhookActivity } from "./actions";
-
-type ContactsPage = { total: number };
-type CampaignAnalytics = { sends: { total: number } };
+import type { ApiKey, SenderIdentity, Team, Tenant, WebhookActivity } from "./actions";
 
 /**
  * .claude/DESIGN.md: likely the screen a tenant lands on when something's
@@ -34,19 +30,11 @@ export default async function SettingsPage() {
   const tenantResult = await apiFetch<Tenant>("/tenant");
   const isOwner = tenantResult.ok && tenantResult.data.is_owner;
 
-  // contactsResult/analyticsResult only ever feed BillingSection's two
-  // "total" figures below — no point fetching either for a member, whose
-  // own /contacts and /analytics/campaign calls would additionally 403 if
-  // they don't happen to hold those specific permissions too
-  // (RequirePermission), unrelated to billing being owner-only.
-  const [subscriptionResult, teamResult, gbpResult, sendersResult, contactsResult, analyticsResult, apiKeysResult, webhookActivityResult] =
+  const [teamResult, gbpResult, sendersResult, apiKeysResult, webhookActivityResult] =
     await Promise.all([
-      isOwner ? apiFetch<Subscription>("/subscription") : Promise.resolve(null),
       isOwner ? apiFetch<Team>("/team") : Promise.resolve(null),
       apiFetch<GbpStatus>("/gbp/status"),
       apiFetch<SenderIdentity[]>("/sender-identities"),
-      isOwner ? apiFetch<ContactsPage>("/contacts") : Promise.resolve(null),
-      isOwner ? apiFetch<CampaignAnalytics>("/analytics/campaign") : Promise.resolve(null),
       apiFetch<ApiKey[]>("/api-keys"),
       apiFetch<WebhookActivity>("/contacts/webhook-activity"),
     ]);
@@ -86,17 +74,11 @@ export default async function SettingsPage() {
               )
             }
             billing={
-              isOwner && subscriptionResult
-                ? subscriptionResult.ok
-                  ? (
-                    <BillingSection
-                      subscription={subscriptionResult.data}
-                      contactsTotal={contactsResult?.ok ? contactsResult.data.total : null}
-                      requestsSentTotal={analyticsResult?.ok ? analyticsResult.data.sends.total : null}
-                    />
-                  )
-                  : <SectionError message={subscriptionResult.message} status={subscriptionResult.status} />
-                : undefined
+              // isOwner already implies tenantResult.ok (isOwner = tenantResult.ok
+              // && tenantResult.data.is_owner above) — no separate error branch
+              // needed here; a failed /tenant fetch is handled once, by the
+              // "business" tab's own SectionError above.
+              isOwner ? <BillingPlaceholder plan={tenantResult.data.plan} status={tenantResult.data.status} /> : undefined
             }
             team={
               isOwner && teamResult
@@ -124,6 +106,38 @@ export default async function SettingsPage() {
         </div>
       </main>
     </AppShell>
+  );
+}
+
+// BillingSection (checkout, auto-renew toggle, billing portal link) was
+// removed with the Lemon Squeezy package — those actions all depended on
+// a live processor integration that no longer exists. This is a
+// read-only stand-in using the same plan/status fields /tenant already
+// carries (provider-agnostic — see Tenant::sendingBlocked()'s state
+// machine) until a Paddle-backed BillingSection is rebuilt.
+const BILLING_STATUS_LABELS: Record<Tenant["status"], string> = {
+  pending: "No plan yet",
+  trialing: "Free trial",
+  active: "Active",
+  trial_expired: "Trial expired",
+  canceled: "Canceled",
+};
+
+function BillingPlaceholder({ plan, status }: { plan: string | null; status: Tenant["status"] }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div>
+        <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Current plan</p>
+        <p className="mt-2 text-sm text-foreground">
+          <span className="text-base font-semibold">{plan ?? "Plan"}</span>{" "}
+          <span className="text-muted-foreground">— {BILLING_STATUS_LABELS[status]}</span>
+        </p>
+      </div>
+      <p className="rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+        Billing management is temporarily unavailable while we switch payment providers. Your plan and access are
+        unaffected — check back soon to manage your subscription here.
+      </p>
+    </div>
   );
 }
 
