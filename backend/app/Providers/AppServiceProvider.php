@@ -7,6 +7,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Paddle\Cashier;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -17,15 +18,32 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->singleton(CurrentTenant::class);
 
-        // Lemon Squeezy's model/route registration (LemonSqueezy::
-        // useSubscriptionModel()/useCustomerModel()/ignoreRoutes()) was
-        // here — removed with the lemonsqueezy/laravel package. Whatever
-        // processor replaces it (Paddle) will need the equivalent
-        // registration, including the same "disable the package's own
-        // auto-registered webhook route, route through our own
-        // tenant-context-resolving controller instead" requirement this
-        // enforced — see the deleted LemonSqueezyWebhookController's
-        // docblock (recoverable from git history) for why that mattered.
+        // Must happen in register(), not boot(): every provider's
+        // register() runs before ANY provider's boot(), but provider boot
+        // ORDER isn't guaranteed — Cashier's own CashierServiceProvider::
+        // boot() (which reads Cashier::$registersRoutes to decide whether
+        // to register its own POST /paddle/webhook route) could run
+        // before this provider's boot() does. Same reasoning
+        // LemonSqueezy::ignoreRoutes() was called for here previously
+        // (git history) — Cashier's default webhook route has no
+        // tenant-context resolution at all, and every cashier-paddle
+        // table (customers/subscriptions/subscription_items/transactions
+        // — see the FORCE ROW LEVEL SECURITY migration) would silently
+        // match zero rows for it. No tenant-aware webhook controller
+        // exists yet (deliberately not built this step — package
+        // installation and config only) — ignoreRoutes() here means
+        // there is currently NO working /paddle/webhook endpoint at all
+        // until that controller is built and wired in its place, rather
+        // than a live-but-broken one.
+        Cashier::ignoreRoutes();
+
+        // useCustomerModel()/useSubscriptionModel() intentionally not
+        // called here yet — no App\Models\Subscription/Customer exist
+        // (next step, alongside the webhook controller and the Billable
+        // trait on whichever model becomes billable). Cashier's own
+        // default Laravel\Paddle\Customer/Subscription models work
+        // against the customers/subscriptions tables as published; they
+        // just don't have BelongsToTenant on them yet.
     }
 
     /**

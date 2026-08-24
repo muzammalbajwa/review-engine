@@ -29,9 +29,12 @@ system drips out compliant review requests and auto-replies to reviews.
 - Queue/Scheduler: Laravel Queues + Horizon + Redis (NOT BullMQ — PHP only)
 - Frontend: Next.js 16 (App Router), React 19, TypeScript, Tailwind, shadcn/ui
 - Auth: Laravel Sanctum (API tokens) — Laravel owns auth
-- Payments: Lemon Squeezy (lemonsqueezy/laravel) — merchant of record, hosted
-  checkout only. Switched from Stripe (which doesn't support
-  Pakistan-domiciled businesses) — see BILLING.md.
+- Payments: Paddle (laravel/cashier-paddle) — merchant of record, hosted
+  checkout only. Switched from Lemon Squeezy (see BILLING.md — that doc
+  still describes the Lemon Squeezy design pending a rewrite; the Paddle
+  integration is being built incrementally: package/config/schema first,
+  checkout/webhook logic next). Originally switched off Stripe (which
+  doesn't support Pakistan-domiciled businesses).
 - Email: Resend/Postmark via Laravel Mail
 - LLM: Claude API (compliance checks + review replies)
 - Hosting: Laravel on a VPS/Forge, Next.js on Vercel, Postgres + Redis managed
