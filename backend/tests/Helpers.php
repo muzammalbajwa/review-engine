@@ -343,3 +343,60 @@ function postSignedPaddleWebhook(array $payload, ?string $secret = null): \Illum
         'HTTP_PADDLE_SIGNATURE' => $signature,
     ], $body);
 }
+
+function ownerIdFor(string $tenantId): int
+{
+    return DB::transaction(function () use ($tenantId) {
+        DB::statement('SELECT set_config(?, ?, true)', ['app.current_tenant_id', $tenantId]);
+
+        return User::query()->where('tenant_id', $tenantId)->where('role', 'owner')->value('id');
+    });
+}
+
+/**
+ * A real subscription.created payload — used by any test that needs a
+ * tenant to already have an active Paddle subscription as setup (the
+ * auto-renew toggle, renewal reminders), not just PaddleWebhookStatusTest
+ * itself, hence living here rather than in that one file (this file's own
+ * docblock: moved out the moment a second file needs the same helper).
+ */
+function subscriptionCreatedPayload(string $customerId, string $subscriptionId, string $tenantId, string $priceId): array
+{
+    return [
+        'event_id' => 'evt_'.Str::random(10),
+        'event_type' => 'subscription.created',
+        'data' => [
+            'id' => $subscriptionId,
+            'customer_id' => $customerId,
+            'status' => 'active',
+            'next_billed_at' => now()->addMonth()->toIso8601String(),
+            'custom_data' => ['subscription_type' => 'default', 'tenant_id' => $tenantId],
+            'items' => [
+                ['price' => ['id' => $priceId, 'product_id' => 'pro_test'], 'status' => 'active', 'quantity' => 1],
+            ],
+        ],
+    ];
+}
+
+/**
+ * Convenience wrapper most tests actually want: seeds the Paddle Customer
+ * row (mirrors createAsCustomer() at real checkout time) and posts a real,
+ * signed subscription.created webhook through the full controller/Cashier
+ * dispatch — leaves the tenant with a genuinely active Subscription row,
+ * the same state a real converted tenant would be in. Returns the Paddle
+ * subscription id for the caller's own follow-up webhooks/assertions.
+ */
+function activatePaddleSubscriptionForTenant(string $tenantId, int $ownerId, ?string $priceId = null): string
+{
+    $customerId = 'ctm_'.Str::random(14);
+    $subscriptionId = 'sub_'.Str::random(14);
+    $priceId ??= config('plans.standard.intervals.monthly.price');
+
+    seedPaddleCustomer($tenantId, $ownerId, $customerId);
+
+    postSignedPaddleWebhook(
+        subscriptionCreatedPayload($customerId, $subscriptionId, $tenantId, $priceId)
+    )->assertOk();
+
+    return $subscriptionId;
+}

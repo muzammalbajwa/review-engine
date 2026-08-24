@@ -2,7 +2,6 @@
 
 use App\Models\Subscription;
 use App\Models\Tenant;
-use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -18,32 +17,10 @@ use Illuminate\Support\Str;
  * actual controller/Cashier dispatch, not a direct method call — so
  * these prove the whole chain, not just the mapping logic in isolation.
  */
-function ownerIdFor(string $tenantId): int
-{
-    return DB::transaction(function () use ($tenantId) {
-        DB::statement('SELECT set_config(?, ?, true)', ['app.current_tenant_id', $tenantId]);
-
-        return User::query()->where('tenant_id', $tenantId)->where('role', 'owner')->value('id');
-    });
-}
-
-function subscriptionCreatedPayload(string $customerId, string $subscriptionId, string $tenantId, string $priceId): array
-{
-    return [
-        'event_id' => 'evt_'.Str::random(10),
-        'event_type' => 'subscription.created',
-        'data' => [
-            'id' => $subscriptionId,
-            'customer_id' => $customerId,
-            'status' => 'active',
-            'next_billed_at' => now()->addMonth()->toIso8601String(),
-            'custom_data' => ['subscription_type' => 'default', 'tenant_id' => $tenantId],
-            'items' => [
-                ['price' => ['id' => $priceId, 'product_id' => 'pro_test'], 'status' => 'active', 'quantity' => 1],
-            ],
-        ],
-    ];
-}
+// ownerIdFor()/subscriptionCreatedPayload() moved to tests/Helpers.php —
+// AutoRenewToggleTest.php and SendRenewalRemindersTest.php need "seed an
+// active real subscription" too (same shared-helper convention this file
+// already lives by, see Helpers.php's own docblock).
 
 function subscriptionUpdatedPayload(string $customerId, string $subscriptionId, string $tenantId, string $status, string $priceId): array
 {

@@ -50,11 +50,11 @@ Route::prefix('v1')->group(function () {
 
     // Billing is owner-only — never grantable to a member under any
     // permission combination (see EnsureTenantOwner's own docblock).
-    // PATCH /subscription (auto-renew toggle) and GET /subscription/portal
-    // (Paddle's customer portal) aren't rebuilt yet — checkout + webhook
-    // handling only, per this round's scope.
+    // GET /subscription/portal (Paddle's customer portal) isn't rebuilt
+    // yet.
     Route::post('/subscribe', [SubscriptionController::class, 'subscribe'])->middleware(['tenant', 'owner']);
     Route::get('/subscription', [SubscriptionController::class, 'show'])->middleware(['tenant', 'owner']);
+    Route::patch('/subscription', [SubscriptionController::class, 'update'])->middleware(['tenant', 'owner']);
 
     Route::get('/tenant', [TenantController::class, 'show'])->middleware('tenant');
     Route::patch('/tenant', [TenantController::class, 'update'])->middleware('tenant');

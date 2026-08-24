@@ -99,18 +99,48 @@ class TenantController extends Controller
     /**
      * The dashboard-banner counterpart to billing:send-renewal-reminders'
      * emails (.claude/BILLING.md "Renewal reminders") — live-computed
-     * from current subscription state, not "was the email sent."
-     *
-     * Stubbed to null pending the Paddle-backed Subscription model: the
-     * Lemon Squeezy-backed implementation read $user->subscription(
-     * 'default') (lemonsqueezy/laravel's Billable trait, removed with
-     * the package) and App\Models\Subscription::periodEnd()/autoRenews()
-     * (also removed — that model extended the package's own base class).
-     * Recoverable from git history once a Paddle-backed subscription
-     * model exists to read the same facts from.
+     * from current subscription state, not "was the email sent." A
+     * 10-day window (not just the exact 10/5-day marks the email fires
+     * on) so the banner stays visible on every login in between, matching
+     * "visible from login" rather than only flashing on the two exact
+     * threshold days.
      */
     private function renewalReminder(Tenant $tenant, User $user): ?array
     {
-        return null;
+        if ($tenant->status !== 'active') {
+            return null;
+        }
+
+        $subscription = $user->subscription('default');
+        $periodEnd = $subscription?->periodEnd();
+
+        if ($periodEnd === null) {
+            return null;
+        }
+
+        $today = now()->startOfDay();
+        $endOfDay = $periodEnd->copy()->startOfDay();
+
+        if ($endOfDay->lessThan($today)) {
+            return null;
+        }
+
+        $daysUntil = (int) $today->diffInDays($endOfDay);
+
+        if ($daysUntil > 10) {
+            return null;
+        }
+
+        $priceCents = $tenant->billing_interval !== null
+            ? config("plans.standard.intervals.{$tenant->billing_interval}.price_cents")
+            : null;
+
+        return [
+            'days_until' => $daysUntil,
+            'auto_renew' => $subscription->autoRenews(),
+            'period_end' => $periodEnd,
+            'billing_interval' => $tenant->billing_interval,
+            'amount_display' => $priceCents !== null ? '$'.number_format($priceCents / 100, 0) : null,
+        ];
     }
 }

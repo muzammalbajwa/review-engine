@@ -44,9 +44,11 @@ Schedule::command('drip:release-pending')->cron('*/20 * * * *')->withoutOverlapp
 // than piling up concurrent runs.
 Schedule::command('trial:expire')->daily()->withoutOverlapping();
 
-// billing:send-renewal-reminders (.claude/BILLING.md "Renewal reminders")
-// removed with the Lemon Squeezy-backed Subscription model it read
-// current_period_end from — see the deleted
-// app/Console/Commands/SendRenewalReminders.php (recoverable from git
-// history) for the full command. Re-add this schedule entry once a
-// Paddle-backed equivalent exists.
+// .claude/BILLING.md "Renewal reminders": 10-day and 5-day advance notice
+// before a subscription's current_period_end. Daily, same reasoning as
+// trial:expire above — a reminder landing a few hours later than the
+// exact threshold has no real consequence. withoutOverlapping guards
+// scheduled ticks against each other; SendRenewalReminders's own
+// lockForUpdate() (its docblock explains why that, not a Cache::lock)
+// additionally guards against a manual invocation racing a scheduled one.
+Schedule::command('billing:send-renewal-reminders')->daily()->withoutOverlapping();

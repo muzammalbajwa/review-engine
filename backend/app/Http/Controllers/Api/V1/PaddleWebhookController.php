@@ -6,6 +6,7 @@ use App\Models\Customer;
 use App\Models\Subscription;
 use App\Models\Tenant;
 use App\Support\Tenancy\CurrentTenant;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -269,6 +270,32 @@ class PaddleWebhookController extends CashierWebhookController
         if ($interval !== null) {
             Tenant::query()->where('id', $tenantId)->update(['billing_interval' => $interval]);
         }
+
+        if (str_starts_with($eventType, 'subscription.')) {
+            $this->syncRenewalDate($subscription, $data);
+        }
+    }
+
+    /**
+     * `next_billed_at` is on every subscription.* payload but Cashier's
+     * own handleSubscriptionCreated()/handleSubscriptionUpdated() only
+     * ever read it to set trial_ends_at while trialing, then discard it
+     * — nothing in the package persists a general "when does this renew"
+     * fact (confirmed against the installed source; see the
+     * add_renewal_tracking_to_subscriptions_table migration's own
+     * docblock). Written here as a straight pass-through of whatever
+     * Paddle reports: null once a subscription stops actively renewing
+     * (Paddle itself clears next_billed_at then), a real date otherwise
+     * — Subscription::periodEnd() prefers ends_at over this the moment a
+     * cancellation is scheduled, so a stale renews_at sitting around
+     * post-cancellation is never actually read as the source of truth.
+     */
+    private function syncRenewalDate(Subscription $subscription, array $data): void
+    {
+        $nextBilledAt = $data['next_billed_at'] ?? null;
+
+        $subscription->renews_at = is_string($nextBilledAt) ? Carbon::parse($nextBilledAt, 'UTC') : null;
+        $subscription->save();
     }
 
     /**

@@ -70,15 +70,19 @@ test('starting a trial sets trial_started_at, trial_ends_at (+7 days), status=tr
     // Exactly 7 days after trial_started_at, not "now" at assertion time.
     expect($tenant->trial_ends_at->diffInSeconds($tenant->trial_started_at->copy()->addDays(7)))->toBeLessThan(2);
 
-    // Previously also asserted no Lemon Squeezy customer/subscription
-    // exists via User::customer() (Billable::customer(), a MorphOne on
-    // lemon_squeezy_customers) — removed with the Lemon Squeezy package
-    // (Billable trait no longer on User, lemon_squeezy_customers table
-    // dropped). The assertion is now structurally guaranteed rather than
-    // something to check: no billing-object relation exists on User at
-    // all right now. Re-add an equivalent "trial start touches no
-    // billing object" assertion once a Paddle-backed customer/
-    // subscription relation exists to check against.
+    // The actual point of this whole design, now meaningfully checkable
+    // again (User::customer(), Billable::checkout()'s createAsCustomer()
+    // relation): starting a trial makes zero Paddle API calls and
+    // creates zero local billing rows. Not structurally guaranteed the
+    // way it was with no Billable trait on User at all — this is a real
+    // assertion against a real relation that a bug could actually
+    // violate.
+    $hasCustomer = DB::transaction(function () use ($tenantId) {
+        DB::statement('SELECT set_config(?, ?, true)', ['app.current_tenant_id', $tenantId]);
+
+        return \App\Models\User::query()->first()->customer !== null;
+    });
+    expect($hasCustomer)->toBeFalse();
 });
 
 test('a tenant who already picked a plan cannot start a trial again', function () {

@@ -246,24 +246,73 @@ that has already really ended.
 — covers a plan/interval swap via `subscription.updated`, not just
 creation.
 
-## Auto-renew toggle, customer portal, renewal reminders
+## Auto-renew toggle
 
-**Not rebuilt yet.** The Lemon Squeezy design's `PATCH /subscription`
-(cancel-at-period-end / resume), `GET /subscription/portal`, and
-`billing:send-renewal-reminders` all depended on that processor's specific
-API shape and are gone with the package (recoverable from git history —
-search for `LemonSqueezyWebhookController`, `App\Models\Subscription::
-autoRenews()`/`periodEnd()`, and `SendRenewalReminders`). Checkout + webhook
-handling (this document, above) landed first; these are a deliberate
-follow-up, not an oversight — `TenantController::renewalReminder()` is
-currently stubbed to return `null` pending it.
+`PATCH /subscription {auto_renew: bool}` (`SubscriptionController::update`,
+owner-only like the rest of billing). `renews_at` is **not** a Cashier
+Paddle column — the package only ever reads Paddle's `next_billed_at` to
+set `trial_ends_at` while trialing, then discards it
+(`2026_08_24_150000_add_renewal_tracking_to_subscriptions_table.php`
+confirmed this against the installed source before adding the column).
+`PaddleWebhookController::syncRenewalDate()` writes it on every
+`subscription.created`/`updated`, straight from `data.next_billed_at`.
+`App\Models\Subscription::autoRenews()`/`periodEnd()` derive the toggle
+state and the date to show from `ends_at`/`renews_at`/`paused()`/
+`canceled()` — same shape the previous processor's identically-named
+methods used, against genuinely different underlying facts.
 
-Paddle's real mechanics for when this gets rebuilt: `subscriptions.status`/
-`paused_at`/`ends_at` (Cashier's own columns, already synced by the webhook
-mapping above) carry the same facts the old `autoRenews()`/`periodEnd()`
-derived from Lemon Squeezy's `status`/`renews_at`/`ends_at` — the shape
-should port over directly, just against Paddle's own cancel/resume API
-calls instead.
+- `auto_renew: false` calls **`Subscription::cancel(false)`** — Paddle's
+  real cancel-at-period-end (`POST /subscriptions/{id}/cancel`,
+  `effective_from: 'next_billing_period'`, confirmed against the
+  installed Cashier source). This is NOT an immediate cancellation:
+  `status` stays whatever it already is (`active`) through the notice
+  window — Paddle writes `ends_at` to the scheduled effective date, not
+  `status`. The tenant keeps full access until the real
+  `subscription.canceled` webhook fires once that date arrives.
+- `auto_renew: true` calls **`Subscription::stopCancelation()`** — the
+  real "undo a scheduled cancellation" method (`PATCH /subscriptions/{id}`
+  with `scheduled_change: null`). **Deliberately not `resume()`**:
+  `resume()` is Paddle's *pause*-undo mechanism, a completely different
+  endpoint with its own semantics — verified against the installed
+  package source before writing this, not assumed from the previous
+  processor's single "resume" concept, which doesn't map onto Paddle's
+  shape. A paused or already-canceled subscription has no scheduled
+  cancellation to undo — those get a clean 422 (`subscription_ended`)
+  instead of a wrong API call, checked client-side (`paused()`/
+  `canceled()`) before ever calling Paddle.
+
+Both directions are idempotent against the subscription's *current*
+Paddle state (`autoRenews()`) rather than always placing an outbound
+call — toggling to the state it's already in never hits Paddle at all
+(`tests/Feature/Billing/AutoRenewToggleTest.php` asserts this with
+`Http::assertNothingSent()`).
+
+## Renewal reminders
+
+`billing:send-renewal-reminders` (`app/Console/Commands/
+SendRenewalReminders.php`), scheduled daily (`routes/console.php`) — same
+shape as `trial:expire`: a bulk, RLS-bypassed read of candidate
+subscription ids, then a per-row re-verify-and-write inside that row's own
+tenant context. At exactly 10 and 5 days before a subscription's
+`current_period_end` (`App\Models\Subscription::periodEnd()`), every
+tenant owner is emailed (`App\Notifications\SubscriptionRenewalReminder`,
+unchanged across every processor this app has had — it takes only
+primitives) — a courtesy notice while `autoRenews()` is true, an
+action-needed notice once it's false. Idempotency is a nullable `date`
+column per threshold (`renewal_reminder_{10,5}d_sent_for`), same reasoning
+as `trial:expire`'s own docblock for why a plain `lockForUpdate()` — not a
+`Cache::lock` — is the right amount of machinery for this command's
+narrow, low-contention race.
+
+`TenantController::renewalReminder()` (`GET /tenant`'s `renewal_reminder`
+field, driving the dashboard banner) is live-computed from the same
+`periodEnd()`/`autoRenews()`, independent of whether the email above has
+actually sent — same "state-driven, not event-driven" design
+`TrialExpiredBanner` already uses.
+
+**Customer portal (`GET /subscription/portal`) — still not rebuilt.**
+Recoverable from git history if it's ever needed; out of scope for this
+pass.
 
 ## Existing tenants on prior pricing/processors
 

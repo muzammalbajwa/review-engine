@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Billing\SubscribeRequest;
+use App\Http\Requests\Billing\UpdateAutoRenewRequest;
+use App\Models\Tenant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Laravel\Paddle\Subscription as PaddleSubscription;
@@ -77,23 +79,105 @@ class SubscriptionController extends Controller
     /**
      * Settings/Billing's one read of "where does this tenant stand."
      * tenant.status/plan/billing_interval/trial_ends_at are authoritative
-     * — they're the only fields that mean anything during
-     * trialing/trial_expired, when no Subscription row exists at all.
-     *
-     * auto_renew/current_period_end (the previous processor's cancel/
-     * resume toggle state) intentionally not ported yet — no
-     * PATCH /subscription endpoint exists this step (checkout + webhook
-     * handling only, per this round's scope).
+     * (they're the only fields that mean anything during
+     * trialing/trial_expired, when no Subscription row exists at all) —
+     * a real subscription, when one exists, only adds `auto_renew`/
+     * `current_period_end`/`ends_at` (App\Models\Subscription::
+     * autoRenews()/periodEnd()), same shape the previous processor's
+     * payload used.
      */
     public function show(Request $request): JsonResponse
     {
         $tenant = $request->user()->tenant;
+        $subscription = $request->user()->subscription('default');
 
-        return response()->json(['data' => [
+        return response()->json(['data' => $this->subscriptionPayload($tenant, $subscription)]);
+    }
+
+    /**
+     * Settings/Billing's auto-renew toggle. `false` calls
+     * Subscription::cancel(false) — Paddle's real cancel-at-period-end
+     * (POST /subscriptions/{id}/cancel with effective_from:
+     * 'next_billing_period', confirmed against the installed Cashier
+     * source, not assumed from the previous processor's shape). This is
+     * NOT an immediate cancellation: `status` stays whatever it already
+     * is (`active`) through the notice window — Paddle writes `ends_at`
+     * to the scheduled effective date, not `status`
+     * (PaddleWebhookController's STATUS_MAP docblock covers why the
+     * webhook side needs no ends_at-based inference the way the previous
+     * processor did). The tenant keeps full access until the real
+     * `subscription.canceled` webhook fires once that date arrives.
+     *
+     * `true` calls Subscription::stopCancelation() — the real "undo a
+     * scheduled cancellation" method (PATCH /subscriptions/{id} with
+     * scheduled_change: null). Deliberately NOT resume(): that method
+     * undoes a *pause*, a completely different Paddle mechanism with its
+     * own endpoint — calling it here would be assuming Paddle's shape
+     * mirrors the previous processor's single "resume" concept, which it
+     * doesn't. A paused or already-canceled subscription has no
+     * "undo a scheduled cancel" to perform, so those get the same clean
+     * 422 (`subscription_ended`) the previous processor's `resume()`-
+     * throws-on-expired case did, not a 500 or a wrong API call.
+     *
+     * Both directions are idempotent against the subscription's *current*
+     * Paddle state (`autoRenews()`) rather than always placing an
+     * outbound call — toggling to the state it's already in never hits
+     * Paddle at all, so it can't fail even without a working API key.
+     */
+    public function update(UpdateAutoRenewRequest $request): JsonResponse
+    {
+        $tenant = $request->user()->tenant;
+        $subscription = $request->user()->subscription('default');
+
+        if ($subscription === null) {
+            return response()->json([
+                'error' => 'no_billing_account',
+                'message' => 'You don\'t have a billing account yet. Subscribe to a plan first.',
+                'fields' => null,
+            ], 422);
+        }
+
+        $autoRenew = $request->boolean('auto_renew');
+
+        if ($autoRenew === $subscription->autoRenews()) {
+            return response()->json(['data' => $this->subscriptionPayload($tenant, $subscription)]);
+        }
+
+        if ($autoRenew && ($subscription->paused() || $subscription->canceled())) {
+            return response()->json([
+                'error' => 'subscription_ended',
+                'message' => 'This subscription has already ended and can\'t be resumed — subscribe again to keep sending review requests.',
+                'fields' => null,
+            ], 422);
+        }
+
+        try {
+            if ($autoRenew) {
+                $subscription->stopCancelation();
+            } else {
+                $subscription->cancel(false);
+            }
+        } catch (\Throwable) {
+            return response()->json([
+                'error' => 'billing_unavailable',
+                'message' => 'Paddle isn\'t available right now. Try again shortly.',
+                'fields' => null,
+            ], 502);
+        }
+
+        return response()->json(['data' => $this->subscriptionPayload($tenant, $subscription->fresh())]);
+    }
+
+    private function subscriptionPayload(Tenant $tenant, $subscription): array
+    {
+        return [
             'plan' => $tenant->plan,
             'billing_interval' => $tenant->billing_interval,
             'status' => $tenant->status,
+            'auto_renew' => $subscription?->autoRenews(),
+            'current_period_end' => $subscription?->periodEnd(),
+            'ends_at' => $subscription?->ends_at,
             'trial_ends_at' => $tenant->trial_ends_at,
-        ]]);
+        ];
     }
 }

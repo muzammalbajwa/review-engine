@@ -135,12 +135,11 @@ test('CRITICAL: a member cannot reach billing under any permission combination, 
     expect($subscribe->json('error'))->toBe('owner_only');
 
     $auth()->getJson('/api/v1/subscription')->assertStatus(403);
+    $auth()->patchJson('/api/v1/subscription', ['auto_renew' => false])->assertStatus(403);
 
-    // PATCH /subscription (auto-renew toggle) and GET /subscription/portal
-    // (Paddle's customer portal) don't exist yet (checkout + webhook
-    // handling only, per this round's scope) — extend this test with
-    // those two assertions once they're rebuilt; billing stays
-    // owner-only for them too, same reasoning as above.
+    // GET /subscription/portal (Paddle's customer portal) doesn't exist
+    // yet — extend this test with that assertion once it's rebuilt;
+    // billing stays owner-only for it too, same reasoning as above.
 });
 
 test('issuing a webhook API key is gated by the contacts permission — closes the bypass a member could otherwise use to create contacts through the webhook API', function () {
