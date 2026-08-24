@@ -1,11 +1,5 @@
 <?php
 
-use App\Models\AuditLog;
-use App\Models\Tenant;
-use App\Models\User;
-use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 /**
@@ -16,64 +10,10 @@ use Illuminate\Support\Str;
  * regular tenant tables, not this separate, RLS-bypassing admin path, so
  * none of its behavior (the 403 for non-admins, the audit logging, the
  * actual cross-tenant read) was previously verified.
+ *
+ * seedAdminAccount/seedCustomerAccount/auditLogsForAction live in
+ * tests/Helpers.php — shared with the other Feature/Admin test files.
  */
-function seedAdminAccount(string $label): array
-{
-    $tenantId = (string) Str::uuid();
-    $email = strtolower(str_replace(' ', '', $label)).'-admin-'.uniqid().'@example.com';
-    $password = 'correct-horse-battery-staple';
-
-    DB::transaction(function () use ($tenantId, $label, $email, $password) {
-        DB::statement('SELECT set_config(?, ?, true)', ['app.current_tenant_id', $tenantId]);
-
-        $tenant = new Tenant(['name' => "{$label} Co", 'type' => 'admin']);
-        $tenant->id = $tenantId;
-        $tenant->save();
-
-        $user = new User([
-            'name' => "{$label} Owner",
-            'email' => $email,
-            'password' => Hash::make($password),
-        ]);
-        $user->tenant_id = $tenantId;
-        $user->role = 'owner';
-        $user->save();
-    });
-
-    $login = test()->postJson('/api/v1/login', ['email' => $email, 'password' => $password])
-        ->assertOk();
-
-    // Regression coverage for the login is_admin resolution (AuthController
-    // ::resolveIsAdmin) — an earlier version crashed here with "Attempt to
-    // read property 'type' on null" because it read $user->isAdmin() after
-    // tenant context had already reverted.
-    expect($login->json('data.user.is_admin'))->toBeTrue();
-
-    return [$login->json('data.token'), $tenantId];
-}
-
-function seedCustomerAccount(string $label): array
-{
-    $response = test()->postJson('/api/v1/register', [
-        'name' => "{$label} Owner",
-        'business_name' => "{$label} Co",
-        'email' => strtolower(str_replace(' ', '', $label)).'-'.uniqid().'@example.com',
-        'password' => 'correct-horse-battery-staple',
-        'password_confirmation' => 'correct-horse-battery-staple',
-    ])->assertCreated();
-
-    return [$response->json('data.token'), $response->json('data.tenant.id')];
-}
-
-function auditLogsForAction(string $action): Collection
-{
-    return DB::transaction(function () use ($action) {
-        DB::statement("SELECT set_config('app.is_admin', 'true', true)");
-
-        return AuditLog::withoutGlobalScopes()->where('action', $action)->get();
-    });
-}
-
 test('listing tenants requires authentication', function () {
     $this->getJson('/api/v1/admin/tenants')->assertUnauthorized();
 });

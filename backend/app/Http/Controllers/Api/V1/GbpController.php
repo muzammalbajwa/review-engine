@@ -27,7 +27,37 @@ class GbpController extends Controller
     public function __construct(
         private readonly GbpOAuthState $oauthState,
         private readonly GoogleBusinessProfileClient $gbpClient,
-    ) {
+    ) {}
+
+    /**
+     * .claude/FRONTEND.md screen: connection status for a settings page
+     * (connected / not_connected / revoked). Read-only — no behavior
+     * change to the connect/callback flow below. Deliberately returns an
+     * explicit allowlist of fields, never the model directly: GbpConnection
+     * has no $hidden for oauth_token/refresh_token (its `encrypted` casts
+     * only protect the column at rest, not the API response — a naive
+     * ['data' => $connection] would decrypt and serialize both tokens
+     * straight into the JSON body).
+     */
+    public function status(Request $request): JsonResponse
+    {
+        $connection = GbpConnection::query()->first();
+
+        if ($connection === null) {
+            return response()->json(['data' => [
+                'status' => 'not_connected',
+                'location_id' => null,
+                'review_link' => null,
+                'last_synced_at' => null,
+            ]]);
+        }
+
+        return response()->json(['data' => [
+            'status' => $connection->status,
+            'location_id' => $connection->location_id,
+            'review_link' => $connection->review_link,
+            'last_synced_at' => $connection->last_synced_at,
+        ]]);
     }
 
     /**
@@ -112,6 +142,11 @@ class GbpController extends Controller
             $connection->location_id = $location['location_id'];
             $connection->review_link = $location['review_link'];
             $connection->status = 'connected';
+            // .claude/QUEUE.md: a fresh reconnect clears the previous
+            // revocation's alert marker (GbpTokenRefresher::markRevoked())
+            // so a *future* revocation sends its own alert instead of
+            // staying permanently silenced by the last one.
+            $connection->revoked_alert_sent_at = null;
             $connection->save();
         });
 

@@ -38,7 +38,7 @@ message template.
 | Frontend | Next.js 16 (App Router), React 19, TypeScript | UI only — no DB access, calls the Laravel API |
 | Styling | Tailwind + shadcn/ui | Design tokens (CSS custom properties) for theming/white-label |
 | Auth | Laravel Sanctum (API tokens) | Laravel owns auth; frontend never talks to the DB |
-| Payments | Stripe via Laravel Cashier | 3 plans, webhook signature-verified |
+| Payments | Lemon Squeezy (lemonsqueezy/laravel) | Single plan, monthly/annual, webhook signature-verified — switched from Stripe (doesn't support Pakistan-domiciled businesses) |
 | Email | Resend / Postmark via Laravel Mail | |
 | AI | Claude API | Compliance-checks message templates + drafts review replies |
 | Hosting (planned) | Laravel on VPS/Forge, Next.js on Vercel, managed Postgres + Redis | |
@@ -75,11 +75,12 @@ Built:
 - `SecurityHeaders` middleware (CSP, X-Frame-Options, HSTS, etc.).
 - Auth: `register` / `login` / `logout`, rate-limited, with a clean JSON
   error envelope on every failure path (401/403/404/422/429).
-- Billing: Cashier installed (`Billable` on `User`), 3 plans (Starter/
-  Growth/Pro, placeholder Stripe price IDs pending real Stripe products),
-  `POST /subscribe`, `GET /subscription`, `POST /stripe/webhook` with
-  mandatory signature verification (fails closed if misconfigured, unlike
-  Cashier's own default).
+- Billing: lemonsqueezy/laravel installed (`Billable` on `User`), single
+  plan/two intervals ($20/mo, $200/yr — placeholder Lemon Squeezy variant
+  IDs pending real Lemon Squeezy products), `POST /subscribe` (returns a
+  hosted checkout URL — Lemon Squeezy has no direct-charge API),
+  `GET /subscription`, `POST /lemon-squeezy/webhook` with mandatory
+  HMAC-SHA256 signature verification (fails closed if misconfigured).
 - Admin: `GET /admin/tenants`, `GET /admin/tenants/{id}` — a separate,
   `TenantPolicy`-gated, audited cross-tenant read path (every read writes
   an `audit_logs` row; RLS bypass is scoped to exactly that read).
@@ -91,8 +92,9 @@ Built:
   — proves Postgres RLS alone blocks it, independent of Eloquent.
 - SQL-injection probes across every auth/subscription input.
 - Login rate limit fires after 5 attempts.
-- Stripe webhook rejects missing/bad/wrong-secret signatures, and verifies
-  a correctly-signed payload (proving it actually checks, not just denies).
+- Lemon Squeezy webhook rejects missing/bad/wrong-secret signatures, and
+  verifies a correctly-signed payload (proving it actually checks, not
+  just denies).
 - A real, non-Pest HTTP round-trip: register → login → protected route →
   revoked-token rejection, with no `Accept` header (matching a real
   frontend `fetch()` call).

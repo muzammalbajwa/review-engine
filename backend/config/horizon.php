@@ -212,6 +212,45 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Environment matching — no silent zero-worker deploys
+    |--------------------------------------------------------------------------
+    |
+    | Found live during a 2026-08-07 staging deploy-readiness audit:
+    | Laravel\Horizon\ProvisioningPlan::deploy() matches the running
+    | environment against these keys (Str::is(), glob-style) and, if
+    | nothing matches, just `return`s — zero supervisors provisioned, zero
+    | workers started. HorizonCommand::handle() then still prints "Horizon
+    | started successfully." unconditionally, regardless of whether
+    | deploy() actually provisioned anything. Confirmed by reading
+    | ProvisioningPlan::deploy() and HorizonCommand::handle() directly
+    | (vendor/laravel/horizon/src) — not assumed.
+    |
+    | Concretely: this file only ever had 'production' and 'local' keys.
+    | The moment a real environment used APP_ENV=staging (the standard
+    | choice — matches .env.production.example's own APP_ENV=production
+    | convention), `php artisan horizon` would report success while
+    | running zero queue workers — every send, every review sync, every
+    | scheduled job would silently never process, with nothing logged
+    | anywhere to say why. Exactly the "confident success, no real work
+    | done" bug class this project has repeatedly found and closed
+    | elsewhere (SendReviewRequest's own idempotency backstop, the
+    | drip:release-pending lock, the RLS empty-string leftover).
+    |
+    | Fixed two ways, not one: an explicit 'staging' entry (deliberately
+    | small — staging is a validation environment, not a scale target, so
+    | it inherits local's shape rather than guessing at a number), AND a
+    | '*' wildcard as a last-resort backstop so this exact silent-failure
+    | class can never recur for some future environment name (preview,
+    | qa, whatever) that isn't explicitly listed here either. Str::is()
+    | already supports glob patterns, so '*' matches unconditionally —
+    | array order matters: it's declared last, and deploy()'s own
+    | collect(...)->first(...) takes the first Str::is() match, so any
+    | more specific key above it still wins.
+    |
+    */
+
     'environments' => [
         'production' => [
             'supervisor-1' => [
@@ -221,7 +260,19 @@ return [
             ],
         ],
 
+        'staging' => [
+            'supervisor-1' => [
+                'maxProcesses' => 3,
+            ],
+        ],
+
         'local' => [
+            'supervisor-1' => [
+                'maxProcesses' => 3,
+            ],
+        ],
+
+        '*' => [
             'supervisor-1' => [
                 'maxProcesses' => 3,
             ],

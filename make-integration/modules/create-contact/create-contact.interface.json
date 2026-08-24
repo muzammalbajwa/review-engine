@@ -1,0 +1,14 @@
+[
+  { "name": "id", "type": "integer", "label": "Contact ID" },
+  { "name": "tenant_id", "type": "uuid", "label": "Tenant ID" },
+  { "name": "campaign_id", "type": "integer", "label": "Campaign ID" },
+  { "name": "name", "type": "text", "label": "Name" },
+  { "name": "phone", "type": "text", "label": "Phone" },
+  { "name": "email", "type": "email", "label": "Email" },
+  { "name": "status", "type": "text", "label": "Status" },
+  { "name": "source", "type": "text", "label": "Source" },
+  { "name": "external_id", "type": "text", "label": "External ID" },
+  { "name": "consent_at", "type": "date", "label": "Consent Recorded At" },
+  { "name": "created_at", "type": "date", "label": "Created At" },
+  { "name": "updated_at", "type": "date", "label": "Updated At" }
+]

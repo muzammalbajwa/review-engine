@@ -115,4 +115,25 @@ return [
         'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Markdown Mail Settings
+    |--------------------------------------------------------------------------
+    |
+    | 'reviewengine' (resources/views/vendor/mail/html/themes/reviewengine.css
+    | — published via `vendor:publish --tag=laravel-mail`, then restyled to
+    | frontend/DESIGN.md's palette/voice) replaces Laravel's stock 'default'
+    | theme for every MailMessage-based Notification app-wide — set once
+    | here, not per-notification. See .claude/AUTH.md's "The banner"-adjacent
+    | notes and that theme file's own header comment for the full reasoning.
+    |
+    */
+
+    'markdown' => [
+        'theme' => 'reviewengine',
+        'paths' => [
+            resource_path('views/vendor/mail'),
+        ],
+    ],
+
 ];

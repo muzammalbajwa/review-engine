@@ -7,6 +7,13 @@ use Illuminate\Http\UploadedFile;
  * .claude/SECURITY.md #4 CSV validation caps, .claude/FRONTEND.md's
  * "upload -> column mapping -> validation preview -> confirm" wizard.
  */
+/**
+ * Verified immediately (markEmailVerified() — tests/Helpers.php) — the
+ * real import (as opposed to the non-persisting preview step below) goes
+ * through RequireSendingAccess, which now also gates on this (the "add
+ * email verification" decision doc). Same reasoning seedCustomerAccount()
+ * itself was updated for.
+ */
 function registerTenantAndToken(string $label): string
 {
     $response = test()->postJson('/api/v1/register', [
@@ -16,6 +23,8 @@ function registerTenantAndToken(string $label): string
         'password' => 'correct-horse-battery-staple',
         'password_confirmation' => 'correct-horse-battery-staple',
     ])->assertCreated();
+
+    markEmailVerified($response->json('data.user.id'), $response->json('data.tenant.id'));
 
     return $response->json('data.token');
 }

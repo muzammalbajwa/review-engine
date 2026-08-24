@@ -31,7 +31,11 @@ scope, the database refuses to return other tenants' rows.
 - Laravel Sanctum issues API tokens. Next.js stores the token in an
   httpOnly, Secure, SameSite=Strict cookie — never in localStorage.
 - Every API route is behind auth:sanctum middleware. No exceptions except
-  /login, /register, /stripe/webhook (which uses signature verification).
+  /login, /register, /lemon-squeezy/webhook (which uses signature
+  verification), and a handful of other signed/token-authenticated public
+  links a real person clicks from an email or a URL they hold (not a
+  Sanctum bearer token) — /email/verify/{id}/{hash}, sender-identity
+  verification, GBP OAuth's own callback, team invites, quick-add.
 - Authorization uses Policies. A customer can only act on their own tenant's
   resources. Check the Policy on EVERY write action.
 - Passwords: bcrypt (Laravel default). Never store or log plaintext.
@@ -47,7 +51,8 @@ scope, the database refuses to return other tenants' rows.
 
 ## 5. Secrets & config
 - All secrets in .env. .env is gitignored. Provide .env.example with blanks.
-- Stripe webhook: verify the signature on every call.
+- Lemon Squeezy webhook: verify the signature (HMAC-SHA256 of the raw body
+  vs. the X-Signature header) on every call.
 - Google OAuth tokens: encrypt at rest (Laravel encrypted casts).
 - API keys (Claude, Resend) server-side only. Never in the Next.js bundle
   (never prefix with NEXT_PUBLIC_ unless it is truly public).

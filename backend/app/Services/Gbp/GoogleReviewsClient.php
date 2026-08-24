@@ -2,6 +2,7 @@
 
 namespace App\Services\Gbp;
 
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -27,7 +28,7 @@ class GoogleReviewsClient
     /**
      * @return array<int, array{google_review_id: string, rating: ?int, text: ?string, reviewer_name: ?string, review_created_at: ?string}>
      *
-     * @throws \Illuminate\Http\Client\RequestException
+     * @throws RequestException
      */
     public function fetchReviews(string $accessToken, string $locationId): array
     {

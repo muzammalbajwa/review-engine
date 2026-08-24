@@ -8,9 +8,34 @@ Chosen for 100–10,000 tenants. Not separate DBs (that's HIPAA-tier overkill).
 - an index on tenant_id (without it, queries do full table scans and die at scale)
 
 ## Core tables
-tenants          (id, name, type[admin|customer], created_at)
-users            (id, tenant_id, email, password, role, ...)
-subscriptions    (id, tenant_id, stripe_id, plan, status, ...)
+tenants          (id, name, type[admin|customer], created_at, plan,
+                  status[pending|trialing|active|trial_expired|canceled],
+                  billing_interval[monthly|annual], trial_started_at,
+                  trial_ends_at) — see BILLING.md. The 7-day free trial is
+                  tracked ENTIRELY here, never in `lemon_squeezy_subscriptions`:
+                  no Lemon Squeezy Customer/Subscription is created at
+                  trial start, only at real conversion.
+users            (id, tenant_id, email, password, role,
+                  has_completed_welcome_tour, tours_seen[jsonb], ...) —
+                  product-tour progress, deliberately per-user (a tenant
+                  with multiple team members needs each person's own
+                  "have I seen this," not one shared flag) and
+                  server-side (a device switch or cleared browser data
+                  must never re-trigger a tour already completed).
+lemon_squeezy_subscriptions (id, tenant_id, billable_id/type, lemon_squeezy_id,
+                  status, variant_id, renews_at, ends_at,
+                  renewal_reminder_10d_sent_for, renewal_reminder_5d_sent_for,
+                  ...) — lemonsqueezy/laravel's own table, tenant_id + RLS
+                  added on top (the package doesn't know about tenants).
+                  tenant.status/billing_interval are still the
+                  authoritative fields the rest of the app reads — this
+                  table only ever supplies `renews_at`/`ends_at` (and the
+                  auto-renew toggle's state, derived from `status`/`ends_at`
+                  rather than a stored column — see BILLING.md's
+                  "Auto-renew toggle"). The two `renewal_reminder_*d_sent_for`
+                  columns are billing:send-renewal-reminders' own
+                  idempotency tracking — see BILLING.md's "Renewal
+                  reminders" for why they store a date, not a boolean.
 gbp_connections  (id, tenant_id, oauth_token[encrypted], location_id, review_link)
 sender_identities(id, tenant_id, type[email|sms], from_address, verified)
 campaigns        (id, tenant_id, type[live|reactivation], status)

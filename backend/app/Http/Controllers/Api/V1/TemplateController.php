@@ -9,6 +9,7 @@ use App\Models\Campaign;
 use App\Models\Template;
 use App\Services\Ai\ComplianceChecker;
 use App\Services\Ai\ComplianceCheckUnparseableException;
+use App\Services\Templates\TemplateProvisioner;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -30,26 +31,15 @@ class TemplateController extends Controller
 {
     private const STEPS = [1, 2, 3];
 
-    /**
-     * Authored compliant by construction (no staff names, no star-rating
-     * ask, no incentive, no conditional/gating language, same link for
-     * everyone) — stored directly at compliance_status=pass rather than
-     * verified through Claude at provisioning time, so a brand-new
-     * tenant's default templates don't depend on the compliance checker
-     * being reachable at all.
-     */
-    private const DEFAULT_BODIES = [
-        1 => "Hi {name}, thank you for choosing {business_name}! We'd love to hear about your experience — please share a review here: {review_link}",
-        2 => "Hi {name}, just a friendly reminder — we'd really appreciate your feedback on your recent experience with {business_name}: {review_link}",
-        3 => "Hi {name}, it's been a while since we worked with you at {business_name}. We'd love to hear your thoughts — please leave us a review here: {review_link}",
-    ];
-
-    public function __construct(private readonly ComplianceChecker $complianceChecker) {}
+    public function __construct(
+        private readonly ComplianceChecker $complianceChecker,
+        private readonly TemplateProvisioner $templateProvisioner,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
         $campaign = Campaign::findOrCreateDefault();
-        $this->ensureDefaultTemplates($campaign);
+        $this->templateProvisioner->ensureDefaults($campaign);
 
         $templates = Template::query()
             ->where('campaign_id', $campaign->id)
@@ -123,22 +113,6 @@ class TemplateController extends Controller
         $template->save();
 
         return response()->json(['data' => $template]);
-    }
-
-    private function ensureDefaultTemplates(Campaign $campaign): void
-    {
-        foreach (self::STEPS as $step) {
-            $template = Template::query()->firstOrNew(['campaign_id' => $campaign->id, 'step' => $step]);
-
-            if ($template->exists) {
-                continue;
-            }
-
-            $template->body = self::DEFAULT_BODIES[$step];
-            $template->compliance_status = 'pass';
-            $template->compliance_reasons = [];
-            $template->save();
-        }
     }
 
     private function aiUnavailable(\Throwable $e): JsonResponse

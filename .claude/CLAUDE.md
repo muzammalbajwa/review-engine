@@ -29,7 +29,9 @@ system drips out compliant review requests and auto-replies to reviews.
 - Queue/Scheduler: Laravel Queues + Horizon + Redis (NOT BullMQ — PHP only)
 - Frontend: Next.js 16 (App Router), React 19, TypeScript, Tailwind, shadcn/ui
 - Auth: Laravel Sanctum (API tokens) — Laravel owns auth
-- Payments: Stripe (Laravel Cashier)
+- Payments: Lemon Squeezy (lemonsqueezy/laravel) — merchant of record, hosted
+  checkout only. Switched from Stripe (which doesn't support
+  Pakistan-domiciled businesses) — see BILLING.md.
 - Email: Resend/Postmark via Laravel Mail
 - LLM: Claude API (compliance checks + review replies)
 - Hosting: Laravel on a VPS/Forge, Next.js on Vercel, Postgres + Redis managed
@@ -50,9 +52,11 @@ system drips out compliant review requests and auto-replies to reviews.
 ## Read next
 - ARCHITECTURE.md — how the pieces fit
 - SECURITY.md — the security rules (READ BEFORE EVERY BACKEND TASK)
+- AUTH.md — email verification (MustVerifyEmail, the owner-scoped sending gate)
 - DATABASE.md — schema + multi-tenancy
 - COMPLIANCE.md — the Google review rules baked into the product
 - API.md — endpoint contract between Next.js and Laravel
+- BILLING.md — the 7-day free trial + Lemon Squeezy conversion design
 - FRONTEND.md — UI standards
 - QUEUE.md — the scheduling engine
 - TESTING.md — what must be tested before shipping

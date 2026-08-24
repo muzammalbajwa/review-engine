@@ -4,7 +4,8 @@
 - US LLC + EIN (unblocks SMS later + payments)
 - Apply for Google Business Profile API access (long lead — apply immediately;
   needs a live website + verified profile >60 days)
-- Stripe account; privacy + T&C pages
+- Lemon Squeezy account (merchant of record — Stripe doesn't support
+  Pakistan-domiciled businesses); privacy + T&C pages
 - Scaffold monorepo: /backend Laravel 12, /frontend Next.js 16, /.claude docs
 - Get both apps running locally, talking over the API, HTTPS in dev.
 
@@ -13,7 +14,8 @@
 - BelongsToTenant trait + global scope
 - RLS migration (ENABLE + FORCE + policy) + non-superuser app role
 - Tenant-context middleware (resolve from auth, SET LOCAL)
-- Sanctum auth; Stripe Cashier + 3 plans + webhook (signature-verified)
+- Sanctum auth; Lemon Squeezy (lemonsqueezy/laravel) + single plan +
+  webhook (signature-verified)
 - GATE: cross-tenant isolation test passes. Nothing proceeds until it does.
 
 ## Phase 2 — The engine (Weeks 4–6) — SHIP HERE (email-first)

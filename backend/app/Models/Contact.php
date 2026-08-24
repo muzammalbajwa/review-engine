@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Contact extends Model
 {
@@ -15,6 +16,8 @@ class Contact extends Model
         'phone',
         'email',
         'status',
+        'source',
+        'external_id',
         'consent_at',
     ];
 
@@ -23,5 +26,10 @@ class Contact extends Model
         return [
             'consent_at' => 'datetime',
         ];
+    }
+
+    public function messages(): HasMany
+    {
+        return $this->hasMany(Message::class);
     }
 }

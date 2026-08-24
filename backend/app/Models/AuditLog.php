@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * Deliberately does NOT use BelongsToTenant. Its tenant_id is the tenant
@@ -29,5 +30,17 @@ class AuditLog extends Model
             'meta' => 'array',
             'created_at' => 'datetime',
         ];
+    }
+
+    public function actor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'actor_id');
+    }
+
+    // Nullable: some admin actions (e.g. "list all tenants") have no single
+    // target tenant — see this table's own migration comment.
+    public function tenant(): BelongsTo
+    {
+        return $this->belongsTo(Tenant::class);
     }
 }

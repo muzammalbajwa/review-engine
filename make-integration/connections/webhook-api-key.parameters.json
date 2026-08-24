@@ -1,0 +1,9 @@
+[
+  {
+    "name": "apiKey",
+    "type": "password",
+    "label": "API Key",
+    "required": true,
+    "help": "From your ReviewEngine dashboard: **Settings → API keys → Generate API key**. The key is shown once, right when you generate it — copy it here before leaving that page. This key can only create contacts; it cannot read or change anything else in your account."
+  }
+]

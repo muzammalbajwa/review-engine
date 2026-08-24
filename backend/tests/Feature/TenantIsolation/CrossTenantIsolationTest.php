@@ -1,12 +1,18 @@
 <?php
 
+use App\Models\Campaign;
+use App\Models\Contact;
+use App\Models\Message;
+use App\Models\SenderIdentity;
 use App\Models\Subscription;
 use App\Models\Tenant;
+use App\Models\TimingRule;
 use App\Models\User;
 use App\Support\Tenancy\CurrentTenant;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\PersonalAccessToken;
 
 /**
  * .claude/TESTING.md gate #1: "as Tenant A, every read/write against
@@ -38,11 +44,13 @@ function seedTenantWithUserAndSubscription(string $name): array
 
         $subscription = new Subscription([
             'type' => 'default',
-            'stripe_id' => 'sub_'.Str::random(14),
-            'stripe_status' => 'active',
-            'stripe_price' => 'price_test_placeholder',
+            'lemon_squeezy_id' => 'sub_'.Str::random(14),
+            'status' => 'active',
+            'product_id' => 'product_test_placeholder',
+            'variant_id' => 'variant_test_placeholder',
         ]);
-        $subscription->user_id = $user->id;
+        $subscription->billable_id = $user->id;
+        $subscription->billable_type = $user->getMorphClass();
         $subscription->tenant_id = $tenantId;
         $subscription->save();
 
@@ -80,7 +88,7 @@ test('as Tenant A, reads against Tenant B users and subscriptions return nothing
         expect(User::all()->pluck('id'))->not->toContain($userB->id);
 
         expect(Subscription::find($subscriptionB->id))->toBeNull();
-        expect(Subscription::where('stripe_id', $subscriptionB->stripe_id)->first())->toBeNull();
+        expect(Subscription::where('lemon_squeezy_id', $subscriptionB->lemon_squeezy_id)->first())->toBeNull();
     });
 });
 
@@ -118,7 +126,7 @@ test('CRITICAL: RLS alone blocks Tenant B users and subscriptions when the app-l
         expect(User::withoutGlobalScopes()->find($userB->id))->toBeNull();
         expect(User::withoutGlobalScopes()->where('email', $userB->email)->first())->toBeNull();
         expect(Subscription::withoutGlobalScopes()->find($subscriptionB->id))->toBeNull();
-        expect(Subscription::withoutGlobalScopes()->where('stripe_id', $subscriptionB->stripe_id)->first())->toBeNull();
+        expect(Subscription::withoutGlobalScopes()->where('lemon_squeezy_id', $subscriptionB->lemon_squeezy_id)->first())->toBeNull();
 
         $updated = User::withoutGlobalScopes()->where('id', $userB->id)->update(['name' => 'Hacked-RLS-Bypass']);
         expect($updated)->toBe(0);
@@ -130,7 +138,7 @@ test('CRITICAL: RLS alone blocks Tenant B users and subscriptions when the app-l
         // connection. Proves this is a database guarantee, not something
         // Eloquent is adding on top that a raw query could route around.
         expect(DB::table('users')->where('id', $userB->id)->first())->toBeNull();
-        expect(DB::table('subscriptions')->where('id', $subscriptionB->id)->first())->toBeNull();
+        expect(DB::table('lemon_squeezy_subscriptions')->where('id', $subscriptionB->id)->first())->toBeNull();
         expect(DB::table('users')->where('id', $userB->id)->update(['name' => 'Hacked-Raw-SQL']))->toBe(0);
     });
 
@@ -138,5 +146,215 @@ test('CRITICAL: RLS alone blocks Tenant B users and subscriptions when the app-l
     // even after all of the above.
     actingAsTenant($tenantB->id, function () use ($userB) {
         expect(User::find($userB->id)->name)->toBe($userB->name);
+    });
+});
+
+/**
+ * .claude/DATABASE.md/.claude/CLAUDE.md golden rule #2 applies identically
+ * to every tenant table, not just the original Phase 1 four (tenants,
+ * users, subscriptions, audit_logs) — the Phase 2 drip-engine tables
+ * (sender_identities, timing_rules, messages) get exactly the same three
+ * checks below: reads/writes with the app scope active, then RLS alone
+ * with it deliberately bypassed.
+ */
+function seedTenantWithDripEngineData(string $name): array
+{
+    return DB::transaction(function () use ($name) {
+        $tenantId = (string) Str::uuid();
+        DB::statement('SELECT set_config(?, ?, true)', ['app.current_tenant_id', $tenantId]);
+
+        $tenant = new Tenant(['name' => $name, 'type' => 'customer']);
+        $tenant->id = $tenantId;
+        $tenant->save();
+
+        $user = new User([
+            'name' => "{$name} Owner",
+            'email' => Str::lower(Str::slug($name)).'-'.Str::random(6).'@example.com',
+            'password' => Hash::make('correct-horse-battery-staple'),
+        ]);
+        $user->tenant_id = $tenantId;
+        $user->role = 'owner';
+        $user->save();
+
+        $campaign = new Campaign(['type' => 'live', 'status' => 'active']);
+        $campaign->tenant_id = $tenantId;
+        $campaign->save();
+
+        $contact = new Contact([
+            'campaign_id' => $campaign->id,
+            'name' => "{$name} Customer",
+            'email' => 'customer-'.Str::random(6).'@example.com',
+            'status' => 'pending',
+        ]);
+        $contact->tenant_id = $tenantId;
+        $contact->save();
+
+        $sender = new SenderIdentity([
+            'from_name' => $name,
+            'from_email' => Str::lower(Str::slug($name)).'@example.com',
+            'verified' => true,
+        ]);
+        $sender->tenant_id = $tenantId;
+        $sender->save();
+
+        $timing = new TimingRule([
+            'delay_minutes_step2' => 4320,
+            'delay_minutes_step3' => 10080,
+            'business_hours_start' => '09:00:00',
+            'business_hours_end' => '18:00:00',
+            'timezone' => 'America/New_York',
+        ]);
+        $timing->tenant_id = $tenantId;
+        $timing->save();
+
+        $message = new Message([
+            'contact_id' => $contact->id,
+            'step' => 1,
+            'status' => 'pending',
+        ]);
+        $message->tenant_id = $tenantId;
+        $message->save();
+
+        return [$tenant, $sender, $timing, $message];
+    });
+}
+
+test('as Tenant A, reads against Tenant B sender identities, timing rules, and messages return nothing (app scope active)', function () {
+    [$tenantA] = seedTenantWithDripEngineData('Tenant A Drip Read');
+    [$tenantB, $senderB, $timingB, $messageB] = seedTenantWithDripEngineData('Tenant B Drip Read');
+
+    actingAsTenant($tenantA->id, function () use ($senderB, $timingB, $messageB) {
+        expect(SenderIdentity::find($senderB->id))->toBeNull();
+        expect(TimingRule::find($timingB->id))->toBeNull();
+        expect(Message::find($messageB->id))->toBeNull();
+        expect(Message::where('contact_id', $messageB->contact_id)->first())->toBeNull();
+    });
+});
+
+test('as Tenant A, writes against Tenant B sender identities, timing rules, and messages affect nothing (app scope active)', function () {
+    [$tenantA] = seedTenantWithDripEngineData('Tenant A Drip Write');
+    [$tenantB, $senderB, $timingB, $messageB] = seedTenantWithDripEngineData('Tenant B Drip Write');
+
+    actingAsTenant($tenantA->id, function () use ($senderB, $timingB, $messageB) {
+        expect(SenderIdentity::where('id', $senderB->id)->update(['verified' => false]))->toBe(0);
+        expect(TimingRule::where('id', $timingB->id)->delete())->toBe(0);
+        expect(Message::where('id', $messageB->id)->update(['status' => 'sent', 'sent_at' => now()]))->toBe(0);
+    });
+
+    actingAsTenant($tenantB->id, function () use ($senderB, $timingB, $messageB) {
+        expect(SenderIdentity::find($senderB->id)->verified)->toBeTrue();
+        expect(TimingRule::find($timingB->id))->not->toBeNull();
+        expect(Message::find($messageB->id)->status)->toBe('pending');
+    });
+});
+
+test('CRITICAL: RLS alone blocks Tenant B sender identities, timing rules, and messages when the app-layer scope is bypassed', function () {
+    [$tenantA] = seedTenantWithDripEngineData('RLS Bypass Drip Tenant A');
+    [$tenantB, $senderB, $timingB, $messageB] = seedTenantWithDripEngineData('RLS Bypass Drip Tenant B');
+
+    actingAsTenant($tenantA->id, function () use ($senderB, $timingB, $messageB) {
+        expect(SenderIdentity::withoutGlobalScopes()->find($senderB->id))->toBeNull();
+        expect(TimingRule::withoutGlobalScopes()->find($timingB->id))->toBeNull();
+        expect(Message::withoutGlobalScopes()->find($messageB->id))->toBeNull();
+
+        expect(SenderIdentity::withoutGlobalScopes()->where('id', $senderB->id)->update(['verified' => false]))->toBe(0);
+        expect(Message::withoutGlobalScopes()->where('id', $messageB->id)->delete())->toBe(0);
+
+        // No Eloquent at all — same raw-query proof the original gate
+        // uses for users/subscriptions, now for the drip-engine tables.
+        expect(DB::table('sender_identities')->where('id', $senderB->id)->first())->toBeNull();
+        expect(DB::table('timing_rules')->where('id', $timingB->id)->first())->toBeNull();
+        expect(DB::table('messages')->where('id', $messageB->id)->first())->toBeNull();
+        expect(DB::table('messages')->where('id', $messageB->id)->update(['status' => 'sent']))->toBe(0);
+    });
+
+    actingAsTenant($tenantB->id, function () use ($senderB, $messageB) {
+        expect(SenderIdentity::find($senderB->id)->verified)->toBeTrue();
+        expect(Message::find($messageB->id)->status)->toBe('pending');
+    });
+});
+
+/**
+ * personal_access_tokens (Sanctum's own table) differs from every table
+ * above: it has no Eloquent-layer TenantScope at all — BelongsToTenant
+ * can't be applied to a vendor model this app doesn't own — so RLS is
+ * the ONLY isolation layer here, not defense in depth on top of an
+ * app-layer scope. That makes its policy more load-bearing than the
+ * others, not less: there's no fallback layer if it were ever wrong.
+ *
+ * 2026_08_06_133207_add_tenant_id_and_rls_to_personal_access_tokens_table.php
+ * closed a real, live-proven leak found during a 2026-08-06 audit: a raw
+ * DB::table('personal_access_tokens')->get() issued while Tenant A's own
+ * session context was active returned every tenant's token rows on the
+ * connection — 75 of them at the time — including Tenant B's, because the
+ * table had neither a tenant_id column nor a policy. The CRITICAL test
+ * below reproduces that exact probe (same unfiltered DB::table() call, no
+ * where() clause at all) and proves it now returns only Tenant A's own
+ * row.
+ */
+function seedTenantWithApiKey(string $name): array
+{
+    return DB::transaction(function () use ($name) {
+        $tenantId = (string) Str::uuid();
+        DB::statement('SELECT set_config(?, ?, true)', ['app.current_tenant_id', $tenantId]);
+
+        $tenant = new Tenant(['name' => $name, 'type' => 'customer']);
+        $tenant->id = $tenantId;
+        $tenant->save();
+
+        $user = new User([
+            'name' => "{$name} Owner",
+            'email' => Str::lower(Str::slug($name)).'-'.Str::random(6).'@example.com',
+            'password' => Hash::make('correct-horse-battery-staple'),
+        ]);
+        $user->tenant_id = $tenantId;
+        $user->role = 'owner';
+        $user->save();
+
+        // Real tenant context is active in this transaction (set above),
+        // so User::createToken()'s tenant_id stamp and the new RLS
+        // policy's WITH CHECK agree — exactly what a real request has via
+        // SetTenantContext/the 'tenant' middleware group.
+        $token = $user->createToken('webhook-api-key', ['contacts:create']);
+
+        return [$tenant, $user, $token->accessToken];
+    });
+}
+
+test('as Tenant A, a normal query never returns Tenant B\'s api key', function () {
+    [$tenantA] = seedTenantWithApiKey('Tenant A Api Key');
+    [$tenantB, , $tokenB] = seedTenantWithApiKey('Tenant B Api Key');
+
+    actingAsTenant($tenantA->id, function () use ($tokenB) {
+        expect(PersonalAccessToken::find($tokenB->id))->toBeNull();
+        expect(PersonalAccessToken::where('id', $tokenB->id)->update(['expires_at' => now()]))->toBe(0);
+    });
+});
+
+test('CRITICAL: RLS alone blocks Tenant B\'s api key via a raw, unfiltered query — the exact leak this migration closed', function () {
+    [$tenantA, $userA, $tokenA] = seedTenantWithApiKey('RLS Bypass Api Key Tenant A');
+    [$tenantB, , $tokenB] = seedTenantWithApiKey('RLS Bypass Api Key Tenant B');
+
+    actingAsTenant($tenantA->id, function () use ($userA, $tokenA, $tokenB) {
+        // No where() clause at all — the literal reproduction of the live
+        // probe that returned 75 cross-tenant rows before this table had
+        // a tenant_id column or an RLS policy.
+        $rows = DB::table('personal_access_tokens')->get();
+
+        expect($rows->pluck('id')->all())->toBe([$tokenA->id]);
+        expect($rows->pluck('tokenable_id')->all())->toBe([$userA->id]);
+        expect($rows->contains('id', $tokenB->id))->toBeFalse();
+
+        // Same proof against Eloquent — withoutGlobalScopes() is a no-op
+        // here (there is no global scope on this vendor model), kept for
+        // the same "prove it's a database guarantee, not an accident of
+        // query construction" spirit as every other table's CRITICAL test.
+        expect(PersonalAccessToken::withoutGlobalScopes()->find($tokenB->id))->toBeNull();
+        expect(DB::table('personal_access_tokens')->where('id', $tokenB->id)->update(['expires_at' => now()]))->toBe(0);
+    });
+
+    actingAsTenant($tenantB->id, function () use ($tokenB) {
+        expect(PersonalAccessToken::find($tokenB->id))->not->toBeNull();
+        expect(PersonalAccessToken::find($tokenB->id)->expires_at)->toBeNull();
     });
 });

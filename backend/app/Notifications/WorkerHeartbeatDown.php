@@ -20,9 +20,7 @@ class WorkerHeartbeatDown extends Notification
 {
     use Queueable;
 
-    public function __construct(public readonly string $reason)
-    {
-    }
+    public function __construct(public readonly string $reason) {}
 
     public function via(object $notifiable): array
     {
@@ -31,7 +29,7 @@ class WorkerHeartbeatDown extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        return (new MailMessage())
+        return (new MailMessage)
             ->subject('[ReviewEngine] Queue worker heartbeat failed')
             ->line("The Horizon queue worker heartbeat check failed: {$this->reason}")
             ->line('Every tenant\'s review requests, sync, and replies stop silently while this is down.')

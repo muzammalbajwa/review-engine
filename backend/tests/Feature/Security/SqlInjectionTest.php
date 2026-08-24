@@ -112,7 +112,7 @@ test('logging in with SQLi payloads never authenticates and never leaks a DB err
     }
 });
 
-test('subscribing with a non-whitelisted plan value (including SQLi payloads) is rejected before touching billing', function () {
+test('subscribing with a non-whitelisted interval value (including SQLi payloads) is rejected before touching billing', function () {
     $register = $this->postJson('/api/v1/register', [
         'name' => 'Subscriber',
         'business_name' => 'Subscriber Co',
@@ -126,14 +126,17 @@ test('subscribing with a non-whitelisted plan value (including SQLi payloads) is
     foreach (sqliPayloads() as $payload) {
         $response = $this->withHeader('Authorization', "Bearer {$token}")
             ->postJson('/api/v1/subscribe', [
-                'plan' => $payload,
-                'payment_method' => 'pm_card_visa',
+                'interval' => $payload,
             ]);
 
-        // 'plan' is whitelisted against config('plans') keys
-        // (Rule::in) — never used to build a query or resolve a price
-        // directly from client input (SECURITY.md #1).
+        // 'interval' is whitelisted against config('plans.standard.intervals')
+        // keys (Rule::in) — never used to build a query or resolve a
+        // variant/price directly from client input (SECURITY.md #1). There's
+        // no payment_method field at all anymore (.claude/BILLING.md's
+        // Lemon Squeezy checkout flow never accepts a raw card token —
+        // that's the whole point of hosted checkout vs. the old Stripe
+        // Elements flow).
         $response->assertStatus(422);
-        expect($response->json('fields.plan'))->not->toBeNull();
+        expect($response->json('fields.interval'))->not->toBeNull();
     }
 });

@@ -10,7 +10,7 @@
 5. Drip throttle: 500 contacts release at 2–3/20min, business hours + tz only,
    never at 2am local.
 6. Worker-death alarm fires when worker killed.
-7. Stripe lifecycle: subscribe/upgrade/cancel/fail → access changes correctly.
+7. Lemon Squeezy lifecycle: subscribe/upgrade/cancel/fail → access changes correctly.
 
 ## Also
 - SQL-injection tests: feed quotes/`;`/`--`/`OR 1=1` into every input; confirm

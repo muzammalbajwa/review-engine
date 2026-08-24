@@ -1,0 +1,21 @@
+{
+  "url": "https://YOUR-REVIEWENGINE-API-HOST/api/v1/tenant",
+  "method": "GET",
+  "headers": {
+    "Authorization": "Bearer {{parameters.apiKey}}",
+    "Accept": "application/json"
+  },
+  "response": {
+    "valid": "{{statusCode == 200}}",
+    "error": {
+      "message": "That key isn't valid. Copy a fresh one from Settings → API keys — the plaintext key is only shown once, right after you generate it."
+    },
+    "metadata": {
+      "type": "text",
+      "value": "{{body.data.name}}"
+    }
+  },
+  "log": {
+    "sanitize": ["request.headers.authorization"]
+  }
+}

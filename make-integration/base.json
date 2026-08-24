@@ -1,0 +1,31 @@
+{
+  "baseUrl": "https://YOUR-REVIEWENGINE-API-HOST",
+  "headers": {
+    "Authorization": "Bearer {{connection.apiKey}}",
+    "Accept": "application/json"
+  },
+  "response": {
+    "error": {
+      "message": "[{{statusCode}}] {{ifempty(body.message, 'Unexpected ReviewEngine API error.')}}",
+      "401": {
+        "type": "InvalidAccessTokenError",
+        "message": "This API key is invalid or its rotation grace period has ended. Reconnect this account with a fresh key from Settings → API keys."
+      },
+      "403": {
+        "type": "InvalidConfigurationError",
+        "message": "This API key isn't authorized to create contacts. Every key generated from Settings → API keys already has this permission — reconnect using a key from there rather than one issued for something else."
+      },
+      "422": {
+        "type": "DataError",
+        "message": "{{body.message}}"
+      },
+      "429": {
+        "type": "RateLimitError",
+        "message": "ReviewEngine's rate limit for your plan was reached. Make will retry automatically."
+      }
+    }
+  },
+  "log": {
+    "sanitize": ["request.headers.authorization"]
+  }
+}

@@ -24,14 +24,21 @@ use Symfony\Component\HttpFoundation\Response;
  *
  * Tenant is resolved from the bearer token's own row only — never a
  * header, query param, or body field the caller could forge. The lookup
- * is scoped to exactly one row (the token's own tokenable_id), the same
- * narrow set-immediately-before/clear-immediately-after bypass pattern
- * AuthController uses for login/register (.claude/SECURITY.md #2) — it can
- * only ever reveal the tenant of the user who already possesses this one
- * secret token, never any other tenant's data. Once this middleware sets
- * the correct tenant context, auth:sanctum's own read of `users` succeeds
- * through the normal, non-bypass tenant_isolation policy — no new RLS
- * policy or exception is introduced.
+ * is scoped to exactly one row (the token's own tenant_id column), the
+ * same narrow set-immediately-before/clear-immediately-after bypass
+ * pattern AuthController uses for login/register (.claude/SECURITY.md #2)
+ * — it can only ever reveal the tenant of whoever already possesses this
+ * one secret token, never any other tenant's data. Once this middleware
+ * sets the correct tenant context, auth:sanctum's own read of `users`
+ * succeeds through the normal, non-bypass tenant_isolation policy — no
+ * new RLS policy or exception is introduced there.
+ *
+ * personal_access_tokens carries its own tenant_id column and RLS policy
+ * (2026_08_06_133207_add_tenant_id_and_rls_to_personal_access_tokens_table.php)
+ * — finding the token row at all, before any tenant is known, is exactly
+ * the same bootstrapping problem `users` already had, solved the same way:
+ * a narrow tenant_isolation_auth_lookup policy keyed on
+ * app.bypass_tenant_scope, active only for the one lookup below.
  *
  * If no bearer token is present, or it doesn't resolve to a user, this
  * middleware does nothing and lets auth:sanctum fail normally (401).
@@ -72,23 +79,24 @@ class SetTenantContext
 
     /**
      * Narrow, single-row RLS bypass — mirrors AuthController's login/register
-     * pattern. Set immediately before the one query that needs it, cleared
-     * immediately after, never left active for anything else in the request.
+     * pattern. Set immediately before the one query that needs it — finding
+     * the bearer token by its hash, before any tenant is known at all —
+     * cleared immediately after, never left active for anything else in the
+     * request.
+     *
+     * Reads tenant_id directly off the token's own row (now that the column
+     * exists) rather than a second lookup against `users` keyed by
+     * tokenable_id — the token row itself is the authoritative source, not
+     * an inference through its owner.
      */
     private function resolveTenantIdForToken(string $bearerToken): ?string
     {
-        $accessToken = PersonalAccessToken::findToken($bearerToken);
-
-        if ($accessToken === null) {
-            return null;
-        }
-
         DB::statement("SELECT set_config('app.bypass_tenant_scope', 'true', true)");
 
-        $tenantId = DB::table('users')->where('id', $accessToken->tokenable_id)->value('tenant_id');
+        $accessToken = PersonalAccessToken::findToken($bearerToken);
 
         DB::statement("SELECT set_config('app.bypass_tenant_scope', 'false', true)");
 
-        return $tenantId;
+        return $accessToken?->tenant_id;
     }
 }

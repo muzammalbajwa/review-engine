@@ -4,59 +4,16 @@ use App\Notifications\WorkerHeartbeatDown;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
-use Laravel\Horizon\Contracts\MasterSupervisorRepository;
 
 /**
  * .claude/QUEUE.md: "Heartbeat alert if the worker dies... This alert ships
  * in Phase 2, not later." .claude/TESTING.md gate 6: "Worker-death alarm
  * fires when worker killed." No real Redis-backed Horizon master exists in
  * this suite — MasterSupervisorRepository is faked with a plain in-memory
- * double so "Horizon is/isn't running" is fully controlled per test.
+ * double (FakeMasterSupervisorRepository, tests/Helpers.php — shared with
+ * Feature/Admin/AdminSystemControllerTest.php) so "Horizon is/isn't
+ * running" is fully controlled per test.
  */
-class FakeMasterSupervisorRepository implements MasterSupervisorRepository
-{
-    public function __construct(private readonly array $masters = [])
-    {
-    }
-
-    public function names()
-    {
-        return array_keys($this->masters);
-    }
-
-    public function all()
-    {
-        return $this->masters;
-    }
-
-    public function find($name)
-    {
-        return $this->masters[$name] ?? null;
-    }
-
-    public function get(array $names)
-    {
-        return array_intersect_key($this->masters, array_flip($names));
-    }
-
-    public function update($master)
-    {
-    }
-
-    public function forget($name)
-    {
-    }
-
-    public function flushExpired()
-    {
-    }
-}
-
-function bindMasterSupervisors(array $masters): void
-{
-    app()->instance(MasterSupervisorRepository::class, new FakeMasterSupervisorRepository($masters));
-}
-
 beforeEach(function () {
     Cache::forget('worker_heartbeat_alert_sent');
 });
@@ -75,7 +32,7 @@ test('the check logs critical and alerts when no master supervisor is registered
     bindMasterSupervisors([]);
     config(['services.ops.alert_email' => 'ops@example.com']);
     Notification::fake();
-    Log::shouldReceive('critical')->once()->with(\Mockery::pattern('/Horizon is not running/'));
+    Log::shouldReceive('critical')->once()->with(Mockery::pattern('/Horizon is not running/'));
 
     $this->artisan('queue:check-heartbeat')->assertExitCode(1);
 
@@ -89,7 +46,7 @@ test('the check also treats a paused master supervisor as down', function () {
     bindMasterSupervisors(['this-host' => (object) ['status' => 'paused']]);
     config(['services.ops.alert_email' => 'ops@example.com']);
     Notification::fake();
-    Log::shouldReceive('critical')->once()->with(\Mockery::pattern('/paused/'));
+    Log::shouldReceive('critical')->once()->with(Mockery::pattern('/paused/'));
 
     $this->artisan('queue:check-heartbeat')->assertExitCode(1);
 

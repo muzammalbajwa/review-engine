@@ -25,6 +25,7 @@ class GbpConnection extends Model
         'review_link',
         'status',
         'last_synced_at',
+        'revoked_alert_sent_at',
     ];
 
     protected function casts(): array
@@ -34,6 +35,7 @@ class GbpConnection extends Model
             'refresh_token' => 'encrypted',
             'token_expires_at' => 'datetime',
             'last_synced_at' => 'datetime',
+            'revoked_alert_sent_at' => 'datetime',
         ];
     }
 }

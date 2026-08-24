@@ -15,11 +15,12 @@ class SubscribeRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // Whitelisted against config/plans.php keys — the client picks a
-            // plan, never a raw Stripe price ID (.claude/SECURITY.md #1: a
-            // client-supplied value never determines what gets charged).
-            'plan' => ['required', 'string', Rule::in(array_keys(config('plans')))],
-            'payment_method' => ['required', 'string'],
+            // Whitelisted against config/plans.php's interval keys — the
+            // client picks monthly or annual, never a raw Lemon Squeezy
+            // variant ID (.claude/SECURITY.md #1: a client-supplied value
+            // never determines what gets charged). There's one plan now
+            // (.claude/BILLING.md), so interval is the only choice left.
+            'interval' => ['required', 'string', Rule::in(array_keys(config('plans.standard.intervals')))],
         ];
     }
 }

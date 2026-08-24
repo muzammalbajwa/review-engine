@@ -1,0 +1,13 @@
+{
+  "name": "reviewengine-make",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ReviewEngine's Make.com custom app — send contacts into your review-request campaign from any app on Make.",
+  "type": "module",
+  "scripts": {
+    "validate": "node scripts/validate.mjs"
+  },
+  "devDependencies": {
+    "@makehq/forman-schema": "^1.14.0"
+  }
+}

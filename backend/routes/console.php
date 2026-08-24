@@ -21,3 +21,34 @@ Schedule::command('gbp:sync-reviews')->everyFifteenMinutes()->withoutOverlapping
 // tenant's reviews just silently stopped" signal, so it should page fast,
 // not on the same slower cadence as ordinary background work.
 Schedule::command('queue:check-heartbeat')->everyMinute()->withoutOverlapping();
+
+// .claude/QUEUE.md mechanic #3: "A scheduled command runs every 20 min,
+// releases the next 2-3 pending contacts... Never blast." This is what
+// actually turns a 'pending' contact into a real first send — previously
+// nothing did. Laravel's frequency helpers jump straight from
+// everyFifteenMinutes() to everyThirtyMinutes() — no everyTwentyMinutes()
+// exists — so this is a literal cron expression instead of the wrong
+// nearby helper. withoutOverlapping: if a run is still dispatching past
+// 20 minutes, the next tick skips rather than double-releasing the same
+// batch of contacts.
+Schedule::command('drip:release-pending')->cron('*/20 * * * *')->withoutOverlapping();
+
+// 7-day free trial (decision doc): finds tenants whose trial_ends_at has
+// passed and transitions them to 'trial_expired'. Daily, not more
+// frequent — unlike the drip release (where a customer is waiting on an
+// actual send), a few hours' delay transitioning an already-past-due
+// trial has no real consequence, so this doesn't need the same
+// tight cadence gbp:sync-reviews or drip:release-pending do.
+// withoutOverlapping: same reasoning as every other scheduled command
+// here — if a run somehow takes past 24h, the next tick skips rather
+// than piling up concurrent runs.
+Schedule::command('trial:expire')->daily()->withoutOverlapping();
+
+// .claude/BILLING.md "Renewal reminders": 10-day and 5-day advance notice
+// before a subscription's current_period_end. Daily, same reasoning as
+// trial:expire above — a reminder landing a few hours later than the
+// exact threshold has no real consequence. withoutOverlapping guards
+// scheduled ticks against each other; SendRenewalReminders's own
+// lockForUpdate() (its docblock explains why that, not a Cache::lock)
+// additionally guards against a manual invocation racing a scheduled one.
+Schedule::command('billing:send-renewal-reminders')->daily()->withoutOverlapping();

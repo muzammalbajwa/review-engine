@@ -151,6 +151,7 @@ class CsvImportService
                     'phone' => $this->mappedValue($row['data'], $mapping['phone'] ?? null),
                     'email' => $this->mappedValue($row['data'], $mapping['email'] ?? null),
                     'status' => 'pending',
+                    'source' => 'csv_import',
                     // Treated as implied consent from the existing customer
                     // relationship the tenant is importing (Phase 2 is
                     // email-first per .claude/ROADMAP.md); SMS's stricter

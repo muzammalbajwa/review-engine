@@ -1,0 +1,6 @@
+{
+  "name": "webhook-api-key",
+  "label": "ReviewEngine",
+  "type": "basic",
+  "_comment": "type: 'basic' is Make's category for a static-credential connection (API key, not OAuth) — confirmed against Make's official 'Basic connection' documentation example. The connection resource itself is created via `make-cli sdk-connections create --type=basic` or the Make Apps Editor UI, which is what actually assigns this name/label — this file documents the intended values rather than being independently machine-read."
+}

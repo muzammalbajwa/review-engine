@@ -3,6 +3,9 @@
 namespace App\Services\Gbp;
 
 use App\Models\GbpConnection;
+use App\Models\User;
+use App\Notifications\GbpConnectionRevoked;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -21,7 +24,7 @@ class GbpTokenRefresher
     /**
      * @throws GbpConnectionRevokedException if Google reports the refresh
      *                                       token itself is no longer valid
-     * @throws \Illuminate\Http\Client\RequestException for any other failure
+     * @throws RequestException for any other failure
      */
     public function refreshIfNeeded(GbpConnection $connection): GbpConnection
     {
@@ -41,8 +44,7 @@ class GbpTokenRefresher
             // revoked access in their Google Account, the grant expired, or
             // the account was deleted/suspended) is 400 + error=invalid_grant.
             if ($response->json('error') === 'invalid_grant') {
-                $connection->status = 'revoked';
-                $connection->save();
+                $this->markRevoked($connection);
 
                 throw new GbpConnectionRevokedException($connection);
             }
@@ -55,5 +57,40 @@ class GbpTokenRefresher
         $connection->save();
 
         return $connection;
+    }
+
+    /**
+     * .claude/QUEUE.md: the tenant needs to actually be told when their
+     * connection dies, not just have it silently marked in the database.
+     * Idempotent via revoked_alert_sent_at: safe to call this on a
+     * connection that's already revoked and already alerted (e.g. a caller
+     * that, unlike SyncReviewsForConnection/ReviewController's own
+     * upfront `status !== 'connected'` guards, invokes refreshIfNeeded
+     * again anyway) — status is re-written harmlessly, but the email never
+     * goes out twice for the same revocation. Reset back to null on
+     * reconnect (GbpController::callback()) so a *future* revocation
+     * alerts again.
+     */
+    private function markRevoked(GbpConnection $connection): void
+    {
+        $alreadyAlerted = $connection->revoked_alert_sent_at !== null;
+
+        $connection->status = 'revoked';
+
+        if (! $alreadyAlerted) {
+            $connection->revoked_alert_sent_at = now();
+        }
+
+        $connection->save();
+
+        if ($alreadyAlerted) {
+            return;
+        }
+
+        User::query()
+            ->where('tenant_id', $connection->tenant_id)
+            ->where('role', 'owner')
+            ->get()
+            ->each(fn (User $owner) => $owner->notify(new GbpConnectionRevoked));
     }
 }

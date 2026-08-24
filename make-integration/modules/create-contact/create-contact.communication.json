@@ -1,0 +1,13 @@
+{
+  "url": "/api/v1/contacts",
+  "method": "POST",
+  "body": {
+    "name": "{{parameters.name}}",
+    "phone": "{{parameters.phone}}",
+    "email": "{{parameters.email}}",
+    "external_id": "{{parameters.external_id}}"
+  },
+  "response": {
+    "output": "{{body.data}}"
+  }
+}

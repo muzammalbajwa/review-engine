@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 !.env.production.example
+!.env.staging.example
 
 # Local TLS certs (mkcert) — private keys, never commit
 /.certs/

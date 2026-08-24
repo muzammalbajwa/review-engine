@@ -3,11 +3,11 @@
 namespace App\Console\Commands;
 
 use App\Notifications\WorkerHeartbeatDown;
+use App\Services\Queue\WorkerHeartbeatChecker;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
-use Laravel\Horizon\Contracts\MasterSupervisorRepository;
 
 /**
  * .claude/QUEUE.md: "Heartbeat alert if the worker dies — a silent worker
@@ -19,9 +19,11 @@ use Laravel\Horizon\Contracts\MasterSupervisorRepository;
  * a queue worker itself — that's the one property that makes this actually
  * work: if Horizon and every worker process die, cron keeps running
  * independently and is still the one thing left able to notice and alert.
- * Detection reuses the exact mechanism `php artisan horizon:status` does
- * (Laravel\Horizon\Console\StatusCommand): an empty/paused master
- * supervisor list in Horizon's Redis-backed repository.
+ * Detection (an empty/paused master supervisor list in Horizon's
+ * Redis-backed repository, the same mechanism `php artisan horizon:status`
+ * uses) lives in WorkerHeartbeatChecker, shared with the /admin/system
+ * screen's live status — this command owns only the alerting/throttling
+ * side effects of a failing check.
  */
 class CheckWorkerHeartbeat extends Command
 {
@@ -34,26 +36,20 @@ class CheckWorkerHeartbeat extends Command
     private const ALERT_THROTTLE_MINUTES = 15;
 
     /**
-     * Method-injected (matching Horizon's own StatusCommand), not
-     * constructor-injected: Artisan resolves a command's constructor
-     * dependencies once, when it's first registered with the console
-     * application, and reuses that same instance for every subsequent
-     * `artisan queue:check-heartbeat` call in the process — a
-     * constructor-injected repository would go stale forever after the
-     * first run. handle()'s parameters are resolved fresh from the
-     * container on every single invocation instead.
+     * Method-injected, not constructor-injected: Artisan resolves a
+     * command's constructor dependencies once, when it's first registered
+     * with the console application, and reuses that same instance for
+     * every subsequent `artisan queue:check-heartbeat` call in the process
+     * — a constructor-injected checker (which itself constructor-injects
+     * MasterSupervisorRepository) would go stale forever after the first
+     * run. handle()'s parameters are resolved fresh from the container on
+     * every single invocation instead.
      */
-    public function handle(MasterSupervisorRepository $repository): int
+    public function handle(WorkerHeartbeatChecker $checker): int
     {
-        $masters = collect($repository->all());
+        ['healthy' => $healthy, 'reason' => $reason] = $checker->check();
 
-        $reason = match (true) {
-            $masters->isEmpty() => 'no active Horizon master supervisor found — Horizon is not running.',
-            $masters->contains(fn ($master) => $master->status === 'paused') => 'the Horizon master supervisor is paused.',
-            default => null,
-        };
-
-        if ($reason === null) {
+        if ($healthy) {
             // A fresh future outage should always alert immediately, not
             // get silently swallowed by a throttle window left over from a
             // previous, since-resolved incident.

@@ -2,6 +2,7 @@
 
 namespace App\Services\Gbp;
 
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Str;
@@ -56,7 +57,7 @@ class GbpOAuthState
 
         try {
             $nonce = Crypt::decryptString($state);
-        } catch (\Illuminate\Contracts\Encryption\DecryptException) {
+        } catch (DecryptException) {
             return null;
         }
 

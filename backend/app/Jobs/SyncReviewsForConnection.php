@@ -2,7 +2,9 @@
 
 namespace App\Jobs;
 
+use App\Models\Contact;
 use App\Models\GbpConnection;
+use App\Models\Message;
 use App\Models\Review;
 use App\Services\Gbp\GbpConnectionRevokedException;
 use App\Services\Gbp\GbpTokenRefresher;
@@ -27,9 +29,7 @@ class SyncReviewsForConnection implements ShouldQueue
 
     public array $backoff = [60, 300, 900];
 
-    public function __construct(public readonly int $gbpConnectionId)
-    {
-    }
+    public function __construct(public readonly int $gbpConnectionId) {}
 
     /**
      * Keyed by connection id: two overruns of the same connection's sync
@@ -119,10 +119,159 @@ class SyncReviewsForConnection implements ShouldQueue
                 ]);
                 $review->tenant_id = $connection->tenant_id;
                 $review->save();
+
+                $this->attemptMatchReviewToContact($review, $connection->tenant_id);
             }
 
             $connection->last_synced_at = now();
             $connection->save();
         });
+    }
+
+    /**
+     * Cross-references a newly-synced review back to whichever contact it
+     * most plausibly came from, so SendReviewRequest's own suppression
+     * check (Message.reviewed_at — see its docblock, ".claude/QUEUE.md:
+     * the check lives in the job") stops a follow-up for someone who
+     * already left a review even if they never clicked our tracked link
+     * to get there (e.g. searched the business on Google directly).
+     *
+     * BE HONEST ABOUT WHAT THIS ACTUALLY IS: Google's review payload gives
+     * us a display name and a timestamp, never an email, phone, or any
+     * customer id — there is no clean join key. This is a best-effort
+     * heuristic, not a guarantee, matching on:
+     *   1. Timing: the review must have been left after the message was
+     *      sent (a customer can't review before being asked) and within
+     *      REVIEW_MATCH_WINDOW_DAYS after — a match against something
+     *      sent months ago is far more likely coincidental than causal.
+     *   2. Name: reviewer_name and the contact's own name share the same
+     *      first token exactly, and either the last tokens match in full
+     *      or one is a single-letter initial of the other (Google
+     *      commonly displays "Priya S." rather than a full surname) — see
+     *      namesLikelyMatch() for the exact rule.
+     *
+     * Known false negatives (a real match we'll miss, and just keep
+     * following up on someone who actually already reviewed): a review
+     * left under a nickname, a spouse's/family member's Google account, a
+     * business account name unrelated to the customer's own name, an
+     * anonymized "A Google User" review, or a surname-only initial on
+     * *our* side instead of Google's (this only recognizes Google's own
+     * "First L." abbreviation, not the reverse).
+     *
+     * Known false positives (a wrong match, which actively suppresses a
+     * real customer's legitimate follow-up): two different contacts who
+     * happen to share the same first+last name, both messaged inside the
+     * same window, with only one of them actually being the reviewer.
+     * Deliberately NOT guessed at — see the ambiguous-match branch below.
+     *
+     * When more than one contact plausibly matches, this does *nothing*
+     * rather than picking one — a wrong suppression is worse than a
+     * missed one: .claude/COMPLIANCE.md's "requests go to ALL customers
+     * equally" is undermined by an incorrect automatic match just as much
+     * as by intentional gating, even though this isn't gating in the
+     * regulatory sense (it changes *whether* to follow up, never *which*
+     * link anyone gets).
+     */
+    private const REVIEW_MATCH_WINDOW_DAYS = 180;
+
+    private function attemptMatchReviewToContact(Review $review, string $tenantId): void
+    {
+        $windowStart = $review->review_created_at->copy()->subDays(self::REVIEW_MATCH_WINDOW_DAYS);
+
+        // Every contact with at least one already-sent, not-yet-resolved
+        // message inside the matching window is a candidate — a contact
+        // can have several such messages (step 1/2/3), we only need to
+        // know the contact themselves is plausible before checking names.
+        $candidates = Contact::query()
+            ->whereHas('messages', function ($query) use ($review, $windowStart) {
+                $query->whereNotNull('sent_at')
+                    ->whereNull('reviewed_at')
+                    ->where('sent_at', '<=', $review->review_created_at)
+                    ->where('sent_at', '>=', $windowStart);
+            })
+            ->get()
+            ->filter(fn (Contact $contact) => $this->namesLikelyMatch($contact->name, $review->reviewer_name));
+
+        if ($candidates->count() !== 1) {
+            if ($candidates->count() > 1) {
+                Log::info('Review-to-contact match skipped: ambiguous', [
+                    'tenant_id' => $tenantId,
+                    'google_review_id' => $review->google_review_id,
+                    'candidate_contact_ids' => $candidates->pluck('id')->all(),
+                ]);
+            }
+
+            return;
+        }
+
+        $contact = $candidates->first();
+
+        // The specific message stamped is the most recently sent one
+        // still awaiting resolution — the one this review is most
+        // plausibly a response to.
+        $message = $contact->messages()
+            ->whereNotNull('sent_at')
+            ->whereNull('reviewed_at')
+            ->where('sent_at', '<=', $review->review_created_at)
+            ->where('sent_at', '>=', $windowStart)
+            ->latest('sent_at')
+            ->first();
+
+        if ($message === null) {
+            return;
+        }
+
+        $message->reviewed_at = $review->review_created_at;
+        $message->save();
+
+        Log::info('Review matched to contact', [
+            'tenant_id' => $tenantId,
+            'google_review_id' => $review->google_review_id,
+            'contact_id' => $contact->id,
+            'message_id' => $message->id,
+        ]);
+    }
+
+    /**
+     * Explainable, not clever: a raw similarity score (Levenshtein,
+     * similar_text%) would be harder to reason about and harder to tune
+     * without silently drifting the false-positive/false-negative
+     * tradeoff described above. This is a fixed rule instead.
+     */
+    private function namesLikelyMatch(?string $contactName, ?string $reviewerName): bool
+    {
+        if ($contactName === null || $reviewerName === null) {
+            return false;
+        }
+
+        $normalize = fn (string $value) => array_values(array_filter(
+            explode(' ', trim(preg_replace('/[^a-z\s]/', '', strtolower($value))))
+        ));
+
+        $contactTokens = $normalize($contactName);
+        $reviewerTokens = $normalize($reviewerName);
+
+        if ($contactTokens === [] || $reviewerTokens === []) {
+            return false;
+        }
+
+        // First name is the anchor — must match exactly, normalized.
+        if ($contactTokens[0] !== $reviewerTokens[0]) {
+            return false;
+        }
+
+        // Either side being a single token (a contact entered with only a
+        // first name, or a Google account showing only a first name) —
+        // the first-name match above is the whole check.
+        if (count($contactTokens) === 1 || count($reviewerTokens) === 1) {
+            return true;
+        }
+
+        $contactLast = end($contactTokens);
+        $reviewerLast = end($reviewerTokens);
+
+        return $contactLast === $reviewerLast
+            || (strlen($reviewerLast) === 1 && $reviewerLast[0] === $contactLast[0])
+            || (strlen($contactLast) === 1 && $contactLast[0] === $reviewerLast[0]);
     }
 }

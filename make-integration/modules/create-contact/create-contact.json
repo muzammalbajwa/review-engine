@@ -1,0 +1,7 @@
+{
+  "name": "createContact",
+  "label": "Add Review Request Contact",
+  "description": "Adds a customer to ReviewEngine and enrolls them in your review-request drip campaign — the same path a CSV import or the quick-add form uses.",
+  "connection": "webhook-api-key",
+  "_comment": "type/crud metadata (this is an Action → Create module) is set when the module resource itself is created via `make-cli sdk-modules create --type=action` or the Make Apps Editor UI — it isn't a confirmed key inside this file's own schema, so it's documented here rather than guessed at. See README's confidence notes."
+}

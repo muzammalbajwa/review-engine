@@ -20,9 +20,7 @@ use Illuminate\Support\Facades\Gate;
  */
 class AdminTenantController extends Controller
 {
-    public function __construct(private readonly AdminAuditLogger $auditLogger)
-    {
-    }
+    public function __construct(private readonly AdminAuditLogger $auditLogger) {}
 
     public function index(Request $request): JsonResponse
     {

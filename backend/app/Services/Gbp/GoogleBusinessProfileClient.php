@@ -2,6 +2,7 @@
 
 namespace App\Services\Gbp;
 
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -18,7 +19,7 @@ use Illuminate\Support\Facades\Http;
 class GoogleBusinessProfileClient
 {
     /**
-     * @throws \Illuminate\Http\Client\RequestException
+     * @throws RequestException
      * @throws \RuntimeException if the account has no manageable location
      */
     public function fetchPrimaryLocation(string $accessToken): array

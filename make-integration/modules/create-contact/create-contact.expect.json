@@ -1,0 +1,30 @@
+[
+  {
+    "name": "name",
+    "type": "text",
+    "label": "Name",
+    "required": true,
+    "help": "The customer's full name."
+  },
+  {
+    "name": "phone",
+    "type": "text",
+    "label": "Phone",
+    "required": false,
+    "help": "Include the country code, e.g. +14155550142. Required if Email is left blank."
+  },
+  {
+    "name": "email",
+    "type": "email",
+    "label": "Email",
+    "required": false,
+    "help": "Required if Phone is left blank."
+  },
+  {
+    "name": "external_id",
+    "type": "text",
+    "label": "External ID",
+    "required": false,
+    "help": "Strongly recommended: map a unique ID for this customer from whatever app triggered this scenario — a CRM record ID, an order number, a row ID. If this module ever runs twice for the same customer (Make's own automatic retry after a rate limit or timeout, or a manual re-run from the scenario history), sending the same External ID returns the contact ReviewEngine already created instead of creating a duplicate. Leave blank only if this scenario will never plausibly run twice for the same person."
+  }
+]
