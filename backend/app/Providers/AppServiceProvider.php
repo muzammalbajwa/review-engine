@@ -2,6 +2,10 @@
 
 namespace App\Providers;
 
+use App\Models\Customer;
+use App\Models\Subscription;
+use App\Models\SubscriptionItem;
+use App\Models\Transaction;
 use App\Support\Tenancy\CurrentTenant;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -18,6 +22,11 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->singleton(CurrentTenant::class);
 
+        Cashier::useCustomerModel(Customer::class);
+        Cashier::useSubscriptionModel(Subscription::class);
+        Cashier::useSubscriptionItemModel(SubscriptionItem::class);
+        Cashier::useTransactionModel(Transaction::class);
+
         // Must happen in register(), not boot(): every provider's
         // register() runs before ANY provider's boot(), but provider boot
         // ORDER isn't guaranteed — Cashier's own CashierServiceProvider::
@@ -29,21 +38,14 @@ class AppServiceProvider extends ServiceProvider
         // tenant-context resolution at all, and every cashier-paddle
         // table (customers/subscriptions/subscription_items/transactions
         // — see the FORCE ROW LEVEL SECURITY migration) would silently
-        // match zero rows for it. No tenant-aware webhook controller
-        // exists yet (deliberately not built this step — package
-        // installation and config only) — ignoreRoutes() here means
-        // there is currently NO working /paddle/webhook endpoint at all
-        // until that controller is built and wired in its place, rather
-        // than a live-but-broken one.
+        // match zero rows for it. PaddleWebhookController
+        // (routes/api.php's POST /paddle/webhook) is the one enforced
+        // entry point instead — it resolves tenant_id from the
+        // already-existing Customer row (created synchronously at
+        // checkout time, before Paddle ever sends a webhook) and sets RLS
+        // context *before* delegating to Cashier's own webhook
+        // processing.
         Cashier::ignoreRoutes();
-
-        // useCustomerModel()/useSubscriptionModel() intentionally not
-        // called here yet — no App\Models\Subscription/Customer exist
-        // (next step, alongside the webhook controller and the Billable
-        // trait on whichever model becomes billable). Cashier's own
-        // default Laravel\Paddle\Customer/Subscription models work
-        // against the customers/subscriptions tables as published; they
-        // just don't have BelongsToTenant on them yet.
     }
 
     /**

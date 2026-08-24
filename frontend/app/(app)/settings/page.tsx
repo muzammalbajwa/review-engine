@@ -109,17 +109,22 @@ export default async function SettingsPage() {
   );
 }
 
-// BillingSection (checkout, auto-renew toggle, billing portal link) was
-// removed with the Lemon Squeezy package — those actions all depended on
-// a live processor integration that no longer exists. This is a
-// read-only stand-in using the same plan/status fields /tenant already
-// carries (provider-agnostic — see Tenant::sendingBlocked()'s state
-// machine) until a Paddle-backed BillingSection is rebuilt.
+// BillingSection (checkout UI, auto-renew toggle, billing portal link)
+// was removed with the Lemon Squeezy package. POST /subscribe and
+// GET /subscription exist again (SubscriptionController, Paddle's
+// overlay checkout) — this is still a read-only stand-in, though: no
+// frontend UI calls them yet (Paddle.js overlay + a real SubscribeForm
+// are a frontend follow-up), and PATCH /subscription (auto-renew) /
+// GET /subscription/portal don't exist on the backend yet either.
 const BILLING_STATUS_LABELS: Record<Tenant["status"], string> = {
   pending: "No plan yet",
   trialing: "Free trial",
   active: "Active",
   trial_expired: "Trial expired",
+  // Does not block sending access — see Tenant::sendingBlockedReason()'s
+  // own docblock (.claude/BILLING.md's dunning design). Shown plainly
+  // rather than alarmingly: Paddle is still retrying, nothing is broken.
+  past_due: "Payment failed — retrying",
   canceled: "Canceled",
 };
 

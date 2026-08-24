@@ -112,10 +112,30 @@ test('logging in with SQLi payloads never authenticates and never leaks a DB err
     }
 });
 
-// 'subscribing with a non-whitelisted interval value...' removed — POST
-// /subscribe no longer exists (removed with the Lemon Squeezy package,
-// see SubscriptionController's deletion). Re-add the equivalent
-// SQLi-payload-in-a-whitelisted-field coverage once a Paddle-backed
-// /subscribe exists again — same 'interval' Rule::in-against-config
-// pattern this asserted (.claude/SECURITY.md #1), never a raw provider
-// price/variant ID accepted from the client.
+test('subscribing with a non-whitelisted interval value (including SQLi payloads) is rejected before touching billing', function () {
+    $register = $this->postJson('/api/v1/register', [
+        'name' => 'Subscriber',
+        'business_name' => 'Subscriber Co',
+        'email' => 'sqli-subscriber@example.com',
+        'password' => 'correct-horse-battery-staple',
+        'password_confirmation' => 'correct-horse-battery-staple',
+    ])->assertCreated();
+
+    $token = $register->json('data.token');
+
+    foreach (sqliPayloads() as $payload) {
+        $response = $this->withHeader('Authorization', "Bearer {$token}")
+            ->postJson('/api/v1/subscribe', [
+                'interval' => $payload,
+            ]);
+
+        // 'interval' is whitelisted against config('plans.standard.intervals')
+        // keys (Rule::in) — never used to build a query or resolve a
+        // Paddle price directly from client input (SECURITY.md #1).
+        // There's no payment_method field at all — Paddle's overlay
+        // checkout collects card details itself, this app never sees or
+        // accepts one.
+        $response->assertStatus(422);
+        expect($response->json('fields.interval'))->not->toBeNull();
+    }
+});

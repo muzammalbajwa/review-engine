@@ -11,9 +11,11 @@ use App\Http\Controllers\Api\V1\GbpController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\MessageClickController;
 use App\Http\Controllers\Api\V1\OnboardingController;
+use App\Http\Controllers\Api\V1\PaddleWebhookController;
 use App\Http\Controllers\Api\V1\QuickAddController;
 use App\Http\Controllers\Api\V1\ReviewController;
 use App\Http\Controllers\Api\V1\SenderIdentityController;
+use App\Http\Controllers\Api\V1\SubscriptionController;
 use App\Http\Controllers\Api\V1\TeamController;
 use App\Http\Controllers\Api\V1\TeamInviteController;
 use App\Http\Controllers\Api\V1\TemplateController;
@@ -21,6 +23,7 @@ use App\Http\Controllers\Api\V1\TenantController;
 use App\Http\Controllers\Api\V1\TourController;
 use App\Http\Controllers\Api\V1\WebhookContactController;
 use Illuminate\Support\Facades\Route;
+use Laravel\Paddle\Http\Middleware\VerifyWebhookSignature;
 
 Route::prefix('v1')->group(function () {
     Route::get('/health', HealthController::class);
@@ -45,11 +48,13 @@ Route::prefix('v1')->group(function () {
     Route::post('/email/verification-notification', [AuthController::class, 'resendVerificationEmail'])
         ->middleware(['tenant', 'throttle:6,1']);
 
-    // Billing routes (POST /subscribe, GET/PATCH /subscription,
-    // GET /subscription/portal) removed with the Lemon Squeezy package —
-    // pending a Paddle-backed SubscriptionController rebuild. Billing
-    // stays owner-only when it comes back (see EnsureTenantOwner's own
-    // docblock), same as team management below.
+    // Billing is owner-only — never grantable to a member under any
+    // permission combination (see EnsureTenantOwner's own docblock).
+    // PATCH /subscription (auto-renew toggle) and GET /subscription/portal
+    // (Paddle's customer portal) aren't rebuilt yet — checkout + webhook
+    // handling only, per this round's scope.
+    Route::post('/subscribe', [SubscriptionController::class, 'subscribe'])->middleware(['tenant', 'owner']);
+    Route::get('/subscription', [SubscriptionController::class, 'show'])->middleware(['tenant', 'owner']);
 
     Route::get('/tenant', [TenantController::class, 'show'])->middleware('tenant');
     Route::patch('/tenant', [TenantController::class, 'update'])->middleware('tenant');
@@ -196,11 +201,20 @@ Route::prefix('v1')->group(function () {
         ->where('tenant', '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}')
         ->where('sender', '[0-9]+');
 
-    // POST /lemon-squeezy/webhook removed with the Lemon Squeezy package
-    // (LemonSqueezyWebhookController deleted). API.md's "no Sanctum auth"
-    // exception list needs a new entry once the Paddle webhook route is
-    // built — same "fail closed on a missing/misconfigured signing
-    // secret" requirement this route enforced, not a lesser standard.
+    // No Sanctum auth (API.md's one documented exception) — authenticated
+    // instead by Paddle's own signature, applied unconditionally here
+    // (not conditionally inside Cashier's own WebhookController
+    // constructor, which only attaches VerifyWebhookSignature when
+    // cashier.webhook_secret happens to be truthy — a missing/
+    // misconfigured PADDLE_WEBHOOK_SECRET would otherwise silently accept
+    // any payload unverified, same "fail closed, not open" reasoning
+    // every processor's webhook route has used here). The only entry
+    // point Paddle is ever told to call — see AppServiceProvider's
+    // Cashier::ignoreRoutes() and PaddleWebhookController's own docblock
+    // for why the package's auto-registered POST /paddle/webhook is
+    // disabled.
+    Route::post('/paddle/webhook', PaddleWebhookController::class)
+        ->middleware(VerifyWebhookSignature::class);
 
     // UUID constraint on {tenant}: a malformed ID must never reach the
     // controller's ::uuid-casting RLS query (an invalid cast throws a raw

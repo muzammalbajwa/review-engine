@@ -76,14 +76,13 @@ class Tenant extends Model
      *  - 'trial_expired': trial_ends_at passed with no paid subscription
      *    ever created.
      *  - 'subscription_ended': a paid subscription stopped renewing —
-     *    either cancel-at-period-end reached its current_period_end
-     *    (Settings/Billing's auto-renew toggle, or a cancellation via
-     *    Lemon Squeezy's own customer portal), or Lemon Squeezy reports
-     *    expired/paused. LemonSqueezyWebhookController only ever writes
-     *    'canceled' once the grace period is actually over — see that
-     *    controller's mappedStatusForCancelled(), which deliberately
-     *    keeps tenant.status at 'active' while a cancel-at-period-end
-     *    subscription is still within its paid period.
+     *    Paddle reports the subscription 'canceled' or 'paused', which
+     *    PaddleWebhookController's STATUS_MAP only ever writes as
+     *    'canceled' once the subscription has actually ended (Paddle
+     *    itself keeps a scheduled cancel-at-period-end's own status at
+     *    'active' through its notice window — see that controller's
+     *    STATUS_MAP docblock for why this needs no ends_at-based
+     *    heuristic the way the previous processor's mapping did).
      *  - 'email_unverified': the tenant OWNER (not whichever team member
      *    happens to be acting — see ownerEmailVerified()'s own docblock
      *    for why) hasn't clicked their signed verification link yet.
@@ -94,6 +93,19 @@ class Tenant extends Model
      * 'pending' (never picked a plan) can't reach these endpoints in
      * practice since onboarding requires a plan first, and there's no
      * reason to special-case it here too.
+     *
+     * 'past_due' deliberately has NO branch here — a failed payment
+     * (PaddleWebhookController's handleTransactionPaymentFailed, or a
+     * subscription.updated reporting Paddle's own status='past_due'
+     * during its dunning retry window) does NOT block sending access.
+     * Confirmed decision, not an oversight: blocking on the first failed
+     * attempt would be more aggressive than anything this app has ever
+     * done for a temporarily-failed-but-recoverable paying customer —
+     * same reasoning the pre-Paddle design already applied when past_due
+     * was a silent no-op, just now the state itself is real and visible
+     * (TenantController's payload, BillingSection) instead of hidden.
+     * Access only actually cuts off once Paddle exhausts dunning and the
+     * subscription genuinely reaches 'canceled'.
      */
     public function sendingBlockedReason(): ?string
     {

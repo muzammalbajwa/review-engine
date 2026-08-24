@@ -18,14 +18,17 @@ export const metadata: Metadata = {
  * tenants.status column, read fresh on every request, no separate
  * feature-flag table or parallel definition of "can this tenant actually
  * use the product." "Subscriber" here is narrower than sendingBlocked()'s
- * own check (which only blocks trial_expired): a canceled tenant can
+ * own check (which blocks trial_expired and canceled, but not
+ * past_due — .claude/BILLING.md's dunning design): a canceled tenant can
  * still technically hit the webhook endpoint today, but showing them
  * full integration docs for an endpoint their billing isn't backing
- * would be misleading, so this page treats trialing/active as the only
- * two "yes" states.
+ * would be misleading. past_due IS included here (unlike trial_expired/
+ * canceled) precisely because sendingBlockedReason() doesn't block it
+ * either — a temporarily-failed-but-retrying payment still backs real
+ * sending access, so the docs should match what they can actually do.
  */
 function isSubscriberStatus(status: Tenant["status"]): boolean {
-  return status === "trialing" || status === "active";
+  return status === "trialing" || status === "active" || status === "past_due";
 }
 
 /**

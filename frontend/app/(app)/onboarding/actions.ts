@@ -8,7 +8,7 @@ import { requireToken } from "@/lib/session";
 
 export type OnboardingStatus = {
   subscribed: boolean;
-  tenant_status: "pending" | "trialing" | "active" | "trial_expired" | "canceled";
+  tenant_status: "pending" | "trialing" | "active" | "trial_expired" | "past_due" | "canceled";
   plan: string | null;
   trial_ends_at: string | null;
   gbp_status: "connected" | "revoked" | "not_connected";

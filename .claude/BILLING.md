@@ -1,14 +1,12 @@
-# BILLING — the 7-day free trial + Lemon Squeezy conversion
+# BILLING — the 7-day free trial + Paddle conversion
 
-This file didn't exist before this feature — `config/plans.php` already had a
-comment noting the gap. This is the trial/subscription design going forward.
-
-Originally built on Stripe (Laravel Cashier); switched to Lemon Squeezy
-because Stripe doesn't support Pakistan-domiciled businesses at all — not a
-config change, a real swap of the billing layer (processor, webhook signing
-scheme, and the conversion flow's whole shape, since Lemon Squeezy has no
-server-side "charge this payment method now" API the way Stripe did — see
-"Conversion" below).
+Originally built on Stripe (Laravel Cashier), switched to Lemon Squeezy
+(Stripe doesn't support Pakistan-domiciled businesses), then switched again
+to Paddle (`laravel/cashier-paddle`, the officially maintained package —
+git history has the full Lemon Squeezy design if it's ever needed). Each
+swap only ever touched the conversion/webhook side — the trial, the 5-state
+(now 6-state) machine, and everything sending-access-related has been
+untouched across all three processors.
 
 ## Pricing
 
@@ -18,12 +16,12 @@ three-tier design:
     Monthly: $20/mo (was $25 — shown struck through in the UI)
     Annual:  $200/yr ("2 months free" — $20 × 10, not a flat 20% off)
 
-`config/plans.php`'s `intervals.monthly.variant`/`intervals.annual.variant`
-point at the two real Lemon Squeezy Variant IDs (one product, two variants)
-— set via `LEMON_SQUEEZY_VARIANT_MONTHLY`/`LEMON_SQUEEZY_VARIANT_ANNUAL`.
-Neither variant should have a free trial configured on the Lemon Squeezy
-side — the trial lives entirely in `tenants` (see below); a Lemon Squeezy
-variant-level trial would create a second, conflicting source of truth.
+`config/plans.php`'s `intervals.monthly.price`/`intervals.annual.price`
+point at the two real Paddle Price IDs (one Product, two Prices) — set via
+`PADDLE_PRICE_MONTHLY`/`PADDLE_PRICE_ANNUAL`. Neither price should have a
+free trial configured on the Paddle side — the trial lives entirely in
+`tenants` (see below); a Paddle-side trial would create a second,
+conflicting source of truth.
 
 ## The trial
 
@@ -31,42 +29,51 @@ variant-level trial would create a second, conflicting source of truth.
 (onboarding's plan step), tracked entirely on `tenants` — see DATABASE.md:
 
     tenants.plan               nullable string, validated against config('plans')
-    tenants.status             pending | trialing | active | trial_expired | canceled
+    tenants.status             pending | trialing | active | trial_expired | past_due | canceled
     tenants.billing_interval   nullable string: monthly | annual — set only at
                                 real conversion, never during the trial
     tenants.trial_started_at   set once, at trial start
     tenants.trial_ends_at      trial_started_at + 7 days
 
-**The one rule that matters: no Lemon Squeezy Customer or Subscription is
-ever created at trial start.** `POST /onboarding/start-trial` never touches
-Lemon Squeezy at all. The first Lemon Squeezy API call in a tenant's whole
-lifecycle happens at real conversion (`POST /subscribe`), whenever that is —
-during the trial, right after it expires, or months later. This is a
-deliberate choice, not an oversight: it avoids an orphaned Lemon Squeezy
-Customer for every tenant who signs up and never converts, and it means
-trial state can never drift out of sync with a billing object that doesn't
-exist yet. (Unchanged from the Stripe design — this is exactly why the swap
-below only ever touches the conversion side.)
+Unlike `plan`/`billing_interval` (app-level validation only), `status` is a
+real Postgres CHECK constraint (`tenants_status_check` —
+`2026_08_10_090000_add_trial_fields_to_tenants_table.php`'s
+`$table->enum(...)`, extended by
+`2026_08_24_140000_add_past_due_to_tenants_status_enum.php` to add
+`past_due`). Writing a status value outside this list fails at the
+database, not just at the app layer — a deliberate stricter guarantee for
+the one column every access-control decision in this app keys off.
+
+**The one rule that matters: no Paddle Customer or Subscription is ever
+created at trial start.** `POST /onboarding/start-trial` never touches
+Paddle at all. The first Paddle API call in a tenant's whole lifecycle
+happens at real conversion (`POST /subscribe`), whenever that is — during
+the trial, right after it expires, or months later. This is a deliberate
+choice, not an oversight: it avoids an orphaned Paddle Customer for every
+tenant who signs up and never converts, and it means trial state can never
+drift out of sync with a billing object that doesn't exist yet.
 
 `status` transitions:
 
     pending -----(start-trial)-----> trialing
     trialing ----(trial:expire, past trial_ends_at)----> trial_expired
-    trialing OR trial_expired --(checkout completes, webhook)--> active
-    active OR trialing OR trial_expired --(cancelled/expired/paused webhook)--> canceled
-    canceled --(resumed/unpaused webhook)--> active
+    trialing OR trial_expired --(checkout completes, subscription.created)--> active
+    active --(transaction.payment_failed, or subscription.updated status=past_due)--> past_due
+    past_due --(transaction.completed / subscription.updated status=active)--> active
+    active OR past_due --(subscription.canceled or paused)--> canceled
+    canceled --(subscription reactivated, status=active again)--> active
 
-`active` only ever happens via a Lemon Squeezy webhook now (see
-"Conversion" — this is the one real behavior change from the Stripe design,
-which flipped `active` synchronously inside `POST /subscribe` itself).
-`trial_started_at`/`trial_ends_at` are never cleared on conversion — they
-stay as the historical record of when the trial ran. `billing_interval` is
-set at the same point `status` flips to `active`.
+`active` only ever happens via a Paddle webhook (`PaddleWebhookController`)
+— `POST /subscribe` itself never activates a tenant synchronously, see
+"Conversion" below. `trial_started_at`/`trial_ends_at` are never cleared on
+conversion — they stay as the historical record of when the trial ran.
+`billing_interval` is set at the same point `status` flips to `active`.
 
-`canceled` is no longer a reserved-for-later state — `LemonSqueezyWebhookController`
-actively maps Lemon Squeezy's subscription lifecycle onto it. See "Webhook →
-status mapping" below for the exact table and the two statuses (`past_due`,
-`unpaid`) that deliberately do NOT touch `tenant.status`.
+`canceled` is not a reserved-for-later state — `PaddleWebhookController`
+actively maps Paddle's subscription lifecycle onto it. `past_due` is a real
+sixth state (not a no-op the way it was under the Lemon Squeezy design) —
+see "Webhook → status mapping" below for the exact mapping and why it
+doesn't block sending access.
 
 ## Expiry
 
@@ -75,7 +82,7 @@ scheduled daily (`routes/console.php`). Finds every tenant with
 `status = 'trialing'` and `trial_ends_at <= now()`, flips each to
 `trial_expired`. `status = 'trialing'` already means "no paid subscription
 exists" by construction of the state machine above — no separate
-Subscription-table check needed. Unchanged by the Lemon Squeezy swap.
+Subscription-table check needed. Unchanged by any processor swap.
 
 **This command only ever writes `tenants.status`.** It must never touch
 contacts, campaigns, templates, or messages — see
@@ -97,8 +104,19 @@ outbound review request:
 Everything else — dashboard, GET /contacts, GET /templates, GET /reviews,
 GET /analytics/campaign, template editing, review replies, GBP connection —
 stays fully available. A trial_expired tenant can see everything they built
-during the trial; they just can't start a new send. Unchanged by the Lemon
-Squeezy swap.
+during the trial; they just can't start a new send. Unchanged by any
+processor swap.
+
+**`past_due` deliberately does NOT block sending access** — confirmed
+product decision (not this app's default assumption): a failed payment
+during Paddle's own dunning retry window is temporary and often self-heals
+without the tenant doing anything (a card that just expired mid-cycle,
+gets auto-updated by the card network, etc.). Blocking on the first failed
+attempt would be more aggressive than anything this app has ever done for
+a customer who is, in every practical sense, still paying. Access only
+actually cuts off once Paddle exhausts dunning and the subscription
+genuinely reaches `canceled` — see `Tenant::sendingBlockedReason()`'s own
+docblock.
 
 As defense in depth, `drip:release-pending` also skips any tenant whose
 `sendingBlocked()` is true (`Tenant::sendingBlocked()`), so a batch of
@@ -106,254 +124,196 @@ contacts imported right before expiry doesn't keep trickling out sends for
 weeks afterward — those contacts stay `status = 'pending'`, untouched,
 until the tenant converts.
 
-The frontend shows a persistent banner (`components/SidebarShell.tsx`'s
-`TrialExpiredBanner`, driven by `AppShell` fetching `GET /tenant`) on every
+The frontend shows a persistent banner (`components/AppShell.tsx`'s
+`TrialExpiredBanner`, driven by fetching `GET /tenant`) on every
 authenticated screen, linking straight to Settings → Billing
 (`/settings?tab=billing`).
 
 ## Conversion
 
-`Settings → Billing` (`app/(app)/settings/SubscribeForm.tsx`) is the only
-place a card is ever collected outside of nothing — onboarding's plan step
-(`PlanSelector.tsx`) has no card field at all, and does not offer a
-monthly/annual choice either (the interval decision is deferred to
-conversion — onboarding just previews the new $25→$20 pricing and starts
-the trial). Both `SubscribeForm.tsx` and a tenant skipping the trial
-entirely to pay immediately hit the same `POST /subscribe`.
+`POST /subscribe {interval: "monthly"|"annual"}` (`SubscriptionController::
+subscribe`, owner-only) is the only entry point — reachable from a
+`trialing` or `trial_expired` tenant converting, or a tenant skipping the
+trial entirely to pay immediately from onboarding. No dedicated frontend
+`SubscribeForm`/checkout UI exists yet — the backend contract is built and
+tested; the Paddle.js overlay integration on the frontend is a follow-up.
 
-**This is the one real architectural difference from the old Stripe
-design.** Lemon Squeezy is a merchant of record with no server-side "charge
-this payment method now" API — every transaction goes through their hosted
-Checkout (redirect or embedded overlay), never a raw PaymentMethod token
-posted to our own backend the way Stripe Elements' `CardElement` worked.
-So:
+**Paddle's overlay checkout, not a hosted-page redirect.** Paddle has no
+server-side "charge this payment method now" API any more than Lemon
+Squeezy did, but its integration shape differs from Lemon Squeezy's:
+Cashier's `Billable::checkout()` creates a real Paddle Customer
+*synchronously*, in the same request, before any checkout UI even opens —
+see "How the webhook knows which tenant" below for why that matters. So:
 
-1. `POST /subscribe {interval: "monthly"|"annual"}` creates a Lemon Squeezy
-   Checkout for the resolved variant (`SubscriptionController::subscribe`)
-   and returns its URL. **This does not activate the tenant.** No card has
-   been charged yet.
-2. The frontend redirects the browser to that URL. The customer pays on
-   Lemon Squeezy's own hosted page.
-3. Lemon Squeezy sends a `subscription_created` webhook (and Lemon Squeezy
-   redirects the browser back to `/settings`) once the checkout completes.
-   `LemonSqueezyWebhookController` is what actually sets
+1. `POST /subscribe` calls `$user->checkout($price)->customData([...])`.
+   `checkout()`'s first step (`createAsCustomer()`) is a real, synchronous
+   Paddle API call — it looks up or creates a Paddle Customer for this
+   user and saves a local `customers` row (tenant-scoped, RLS-protected)
+   *before* returning. **This does not activate the tenant.** No payment
+   has happened yet.
+2. The response is `Checkout::options()` — the exact JSON shape
+   `Paddle.Checkout.open(options)` (Paddle.js, loaded client-side with
+   `PADDLE_CLIENT_SIDE_TOKEN`) expects: `items` (the resolved price ID +
+   quantity), `customer.id` (the Paddle Customer just created), and
+   `customData` (`subscription_type` + `tenant_id`). The frontend opens
+   Paddle's overlay with this payload; the customer pays inside it,
+   without leaving the app.
+3. Paddle sends a `subscription.created` webhook once the checkout
+   completes. `PaddleWebhookController` is what actually sets
    `tenant.status = 'active'` and `tenant.billing_interval`.
 
 Practical effect: there's a real (usually sub-second, but not guaranteed)
 gap between "customer finishes paying" and "tenant.status reads active."
-`/settings` reflects whatever `GET /subscription` currently says on
-render/refresh — no polling loop was added for this; a manual refresh
-after redirect-back resolves it same as any other eventually-consistent
-webhook-driven state in this app.
+`GET /subscription` reflects whatever the database currently says on
+read — no polling loop exists for this; a manual refresh after the overlay
+closes resolves it, same as any other eventually-consistent webhook-driven
+state in this app.
 
-### custom_data.tenant_id — how the webhook knows which tenant
+### How the webhook knows which tenant
 
-A Lemon Squeezy webhook carries no Sanctum bearer token — it's an
-unauthenticated POST from Lemon Squeezy's servers. `SetTenantContext`
-middleware does nothing for it, so `app.current_tenant_id` would otherwise
-be unset, and every tenant table's `FORCE ROW LEVEL SECURITY` policy means
-the webhook's writes would silently match zero rows.
+A Paddle webhook carries no Sanctum bearer token — it's an unauthenticated
+POST from Paddle's servers. `SetTenantContext` middleware does nothing for
+it, so `app.current_tenant_id` would otherwise be unset, and every
+cashier-paddle table's `FORCE ROW LEVEL SECURITY` policy means the
+webhook's writes would silently match zero rows.
 
-Fixed the same way `custom_data` is designed to be used
-(docs.lemonsqueezy.com/help/checkout/passing-custom-data): `subscribe()`
-passes `custom: ['tenant_id' => $tenant->id]` at checkout time, and Lemon
-Squeezy round-trips that value into `meta.custom_data.tenant_id` on every
-Order/Subscription/License-key webhook tied to that checkout — not just
-the first one, so this resolves correctly for `subscription_updated`/
-`cancelled`/`resumed`/`expired`/`paused`/`unpaused` too.
-`LemonSqueezyWebhookController` reads it, calls the same `set_config()` +
-`CurrentTenant::set()` pair `SetTenantContext` uses for a normal request,
-*then* delegates to `lemonsqueezy/laravel`'s own webhook processing (its
-`WebhookController` is `final`, so this wraps rather than extends it).
+Unlike the Lemon Squeezy design (which had no other option — its checkout
+never created a local row before the webhook arrived, so it had to resolve
+tenant context from `custom_data` alone), Paddle's checkout flow already
+created a local `customers` row *synchronously*, at step 1 above, with the
+correct `tenant_id` already stamped via `BelongsToTenant`. Every Paddle
+webhook this app handles carries a `customer_id` (or, for
+`customer.updated`, is itself keyed by that id) — `PaddleWebhookController`
+resolves `tenant_id` by looking that row up (bypassing RLS the same narrow,
+scoped-to-one-query way `SetTenantContext`'s own token lookup does), not
+from `custom_data`. `custom_data.tenant_id` (also set at checkout time via
+`customData()`) is still passed through and cross-checked as defense in
+depth — a mismatch is logged loudly, never silently trusted either way
+(.claude/SECURITY.md #1).
+
+`PaddleWebhookController` extends (not wraps — Cashier's own
+`WebhookController` isn't `final`, unlike Lemon Squeezy's) the package's
+controller: it resolves tenant context, sets `app.current_tenant_id` +
+`CurrentTenant`, *then* calls `parent::__invoke()` to run Cashier's own
+event dispatch, then syncs `tenant.status` once that call confirms success.
 
 ## Webhook → status mapping
 
-Lemon Squeezy's subscription statuses are richer than this app's 5-state
-machine — the mapping below (`LemonSqueezyWebhookController::STATUS_MAP`)
-collapses them onto the existing states rather than inventing new ones,
-keyed off `data.attributes.status` (present on every subscription webhook,
-not just `subscription_created`) rather than `meta.event_name`, so it
-covers the full lifecycle uniformly:
+Paddle's subscription status vocabulary
+(`Laravel\Paddle\Subscription::STATUS_*`) maps onto this app's state
+machine via `PaddleWebhookController::STATUS_MAP`, read fresh from the
+`subscriptions` row after Cashier's own handler has already written it:
 
-| Lemon Squeezy `status` | `tenant.status` | Why |
+| Paddle `status` | `tenant.status` | Why |
 |---|---|---|
 | `active` | `active` | Paying, in good standing. |
-| `cancelled`, `ends_at` in the future | *(no-op)* | Cancel-at-period-end has been requested (Settings/Billing's auto-renew toggle, or a cancellation via Lemon Squeezy's own customer portal) but the current billing period hasn't ended yet — see "Auto-renew toggle" below. `tenant.status` stays whatever it already is (`active`); cutting access here would defeat the entire point of cancel-at-period-end. |
-| `cancelled`, `ends_at` null or already past | `canceled` | Not a normal cancel-at-period-end shape — treated as an immediate cancellation rather than silently granting extra access. |
-| `expired` | `canceled` | The grace period genuinely ended (or dunning was exhausted with no grace period to begin with). This is the real trigger that revokes access for a non-renewing subscription — not a timestamp comparison our own code runs, but Lemon Squeezy's own webhook firing when `ends_at` arrives. |
-| `paused` | `canceled` | Functionally the same as canceled for sending-access purposes — no `paused` slot exists in the 5-state machine. |
-| `past_due` | *(no-op)* | A failed renewal starts Lemon Squeezy's own dunning retry window. Blocking sending on the first failed attempt would be more aggressive than anything this app has ever done — dunning/payment-failure handling was never built for Stripe either. Confirmed decision, not an oversight. |
-| `unpaid` | *(no-op)* | Same reasoning as `past_due`. |
-| `on_trial` | *(no-op)* | Should never actually occur — see "Pricing" above (no variant-level trial). If it ever does, staying a no-op is the safe default: never silently grant `active` for a status that isn't really "paying." |
+| `past_due` | `past_due` | Dunning in progress — see below. |
+| `paused` | `canceled` | Functionally the same as canceled for sending-access purposes — no separate `paused` slot in the state machine. |
+| `canceled` | `canceled` | The subscription has genuinely ended. |
+| `trialing` | *(no entry — no-op)* | Should never actually occur (see "Pricing" above: no Paddle-side trial configured). If it ever does, having no mapping is the safe default — never silently grant `active` for a status that isn't really "paying." |
 
-`unpause`/`resume` aren't separate branches in this table — Lemon Squeezy
-reports the subscription's status as `active` again once resumed/unpaused,
-so the same `active` row handles it without a name-per-event special case.
+Unlike the Lemon Squeezy design, this needs **no `ends_at`-based "is this
+actually still in its grace period" heuristic**
+(`mappedStatusForCancelled()` there). Paddle's own `status` field already
+stays `active` through a scheduled cancel-at-period-end's notice window
+(`data.scheduled_change`, not a status change) and only flips to
+`canceled` once the subscription actually ends — the status column, read
+directly, is sufficient.
+
+`transaction.payment_failed` is handled separately, NOT through this
+table: Cashier's base `WebhookController` has no handler for this event at
+all (verified against the installed package — it silently no-ops).
+`PaddleWebhookController::handleTransactionPaymentFailed()` is a real
+override that sets `tenant.status = 'past_due'` directly, immediately, on
+the first failed transaction — independent of whether Paddle has updated
+the subscription's own `status` column yet (a single failed attempt
+doesn't necessarily mean it has). This is deliberately excluded from the
+generic status-sync path above: reading the subscription's still-`active`
+status on that same event would otherwise silently clobber the `past_due`
+signal right back (a real bug this app's own tests caught and fixed, not
+a hypothetical). The write only ever fires from `active`/`past_due` —
+never pulls an already-`canceled`/`trial_expired` tenant back into
+`past_due` from a stray, late transaction retry against a subscription
+that has already really ended.
+
+`transaction.completed` also re-syncs status via the same generic path
+(reading the subscription's current status) — this covers "recovered from
+`past_due` once a retried transaction succeeds" even if a
+`subscription.updated` event hasn't landed yet.
 
 `billing_interval` is synced independently, whenever a webhook's
-`variant_id` matches one of `config('plans.intervals').*.variant` — covers
-a `subscription_updated` from a plan/interval swap, not just creation.
+`items[].price.id` matches one of `config('plans.standard.intervals').*.price`
+— covers a plan/interval swap via `subscription.updated`, not just
+creation.
 
-## Auto-renew toggle
+## Auto-renew toggle, customer portal, renewal reminders
 
-Settings/Billing (`BillingSection.tsx`) shows and controls whether a real,
-active Lemon Squeezy subscription will renew — "Renews automatically on
-[date]" vs "Ends on [date] — renew manually to keep access." No new
-column anywhere: `lemon_squeezy_subscriptions` (`lemonsqueezy/laravel`'s
-own table, already synced via webhook — see "Webhook → status mapping"
-above) already carries everything this needs in `status`/`renews_at`/
-`ends_at`. `App\Models\Subscription::autoRenews()`/`periodEnd()` derive
-the toggle state and the date to show from those three columns; adding a
-stored `auto_renew` boolean would just be a second, driftable copy of
-`status !== 'cancelled'`.
+**Not rebuilt yet.** The Lemon Squeezy design's `PATCH /subscription`
+(cancel-at-period-end / resume), `GET /subscription/portal`, and
+`billing:send-renewal-reminders` all depended on that processor's specific
+API shape and are gone with the package (recoverable from git history —
+search for `LemonSqueezyWebhookController`, `App\Models\Subscription::
+autoRenews()`/`periodEnd()`, and `SendRenewalReminders`). Checkout + webhook
+handling (this document, above) landed first; these are a deliberate
+follow-up, not an oversight — `TenantController::renewalReminder()` is
+currently stubbed to return `null` pending it.
 
-`PATCH /subscription {auto_renew: bool}` (`SubscriptionController::update`,
-owner-only like the rest of billing):
+Paddle's real mechanics for when this gets rebuilt: `subscriptions.status`/
+`paused_at`/`ends_at` (Cashier's own columns, already synced by the webhook
+mapping above) carry the same facts the old `autoRenews()`/`periodEnd()`
+derived from Lemon Squeezy's `status`/`renews_at`/`ends_at` — the shape
+should port over directly, just against Paddle's own cancel/resume API
+calls instead.
 
-- `auto_renew: false` calls `Subscription::cancel()` — a Lemon Squeezy
-  `DELETE /subscriptions/{id}` call. This is Lemon Squeezy's actual
-  cancel-at-period-end: it does not revoke access immediately. Lemon
-  Squeezy sets the subscription's `status` to `cancelled` and `ends_at` to
-  the end of the already-paid-for billing period; the tenant keeps full
-  access until then.
-- `auto_renew: true` calls `Subscription::resume()` — a
-  `PATCH /subscriptions/{id}` with `cancelled: false`. This is Lemon
-  Squeezy's real resume mechanism (confirmed against `lemonsqueezy/laravel`
-  itself, not assumed from Stripe's `->resume()`, which works differently).
-  The package's own `resume()` throws if the subscription is already
-  `expired` — Lemon Squeezy has no "resume after the grace period ended"
-  operation, so `SubscriptionController::update` turns that into a clean
-  422 (`subscription_ended`), not a 500.
+## Existing tenants on prior pricing/processors
 
-Both directions are idempotent against the subscription's *current* Lemon
-Squeezy state (`autoRenews()`) rather than always placing an outbound
-call — toggling to the state it's already in never hits Lemon Squeezy at
-all, so it can't fail even without a working API key.
-
-**The bug this feature exposed and fixed**: before this, the webhook
-mapping above collapsed `cancelled` straight to `tenant.status = 'canceled'`
-regardless of `ends_at`, which would have cut off access the instant
-cancel-at-period-end was requested — exactly the immediate-cancellation
-behavior this feature exists to NOT have.
-`LemonSqueezyWebhookController::mappedStatusForCancelled()` is the fix:
-a `cancelled` webhook with a future `ends_at` is now a no-op, and the
-real access-revoking trigger is the `expired` webhook Lemon Squeezy sends
-once that date actually arrives.
-
-`Tenant::sendingBlocked()` (`RequireSendingAccess`, `drip:release-pending`'s
-defense-in-depth check) now blocks `status = 'canceled'` in addition to
-`trial_expired` — same "access ends, data doesn't" logic
-(`TrialExpiryDataIntegrityTest.php`'s CRITICAL guarantee applies here too;
-nothing about this feature touches contacts/campaigns/templates/messages),
-just reached by a subscription lapsing instead of a trial running out.
-`RequireSendingAccess` returns `error: 'subscription_ended'` (not
-`trial_expired`) when that's the actual reason, so the frontend/API
-consumer sees an accurate error code rather than trial-specific copy for
-a tenant who was actually a paying customer.
-
-## Renewal reminders
-
-`billing:send-renewal-reminders` (`app/Console/Commands/SendRenewalReminders.php`),
-scheduled daily (`routes/console.php`) — same shape as `trial:expire`: a
-bulk, RLS-bypassed read of candidate subscription ids, then a per-row
-re-verify-and-write inside that row's own tenant context. At exactly 10
-and 5 days before a subscription's `current_period_end`
-(`App\Models\Subscription::periodEnd()`), every tenant owner is emailed
-(`App\Notifications\SubscriptionRenewalReminder`) — a courtesy notice
-("your card will be charged $X on [date]") while `autoRenews()` is true,
-an action-needed notice ("renew now to keep sending") once it's false
-(cancel-at-period-end already requested).
-
-**Idempotency: a nullable `date` column per threshold**
-(`lemon_squeezy_subscriptions.renewal_reminder_{10,5}d_sent_for`), not a
-`Cache::lock`, and not a plain boolean either. Two reasons this shape,
-not the other two options mentioned when this was scoped:
-- **Why not `trial:expire`'s "no lock needed, the write is idempotent"
-  reasoning verbatim**: that write is a pure status flip — redoing it
-  twice is a true no-op. This command's side effect (a Notification
-  send) is NOT idempotent by nature — sending it twice is a real
-  duplicate email, the same category of problem `drip:release-pending`'s
-  `Cache::lock` exists to prevent for double-dispatching
-  `SendReviewRequest`. So this needed *some* guard trial:expire doesn't.
-- **Why not `drip:release-pending`'s `Cache::lock`**: that lock protects
-  a *batch selection* race across many contact rows per tenant, at real
-  contention (a documented, previously-reproduced concurrency bug). This
-  command's race is narrower — one subscription row's own read-then-write
-  — and the realistic collision (a manual `php artisan
-  billing:send-renewal-reminders` run landing on the exact day a
-  scheduled tick also fires) is rare and low-stakes (one duplicate
-  reminder email, not a duplicate customer-facing send). A plain
-  `lockForUpdate()` inside the per-row transaction that's already being
-  opened closes the race completely — two concurrent transactions
-  serialize on that row at the Postgres level — without reaching for
-  Redis-backed `Cache::lock`/`LockTimeoutException` handling sized for a
-  higher-contention problem this command doesn't have.
-- **Why not a plain boolean/timestamp `sent_at`** (`revoked_alert_sent_at`'s
-  own shape): `current_period_end` moves forward every billing cycle
-  (`renews_at`/`ends_at` update via the normal webhook flow), and a
-  reminder must re-fire each cycle, not just once ever. Storing the
-  *date the reminder was sent for* — compared against the freshly
-  recomputed `periodEnd()` on every run — makes next cycle's reminder
-  fire correctly with no explicit reset hook anywhere (contrast
-  `revoked_alert_sent_at`, which needs `GbpController::callback()` to
-  explicitly clear it on reconnect, because that flag has no "which
-  cycle" dimension to compare against on its own).
-
-**The dashboard banner** (`SidebarShell.tsx`'s `RenewalReminderBanner`,
-driven by `GET /tenant`'s `renewal_reminder` field,
-`TenantController::renewalReminder()`) is deliberately NOT tied to
-whether the email above has actually been sent — it's live-computed from
-current subscription state on every `/tenant` fetch, the same "state-driven,
-not event-driven" design `TrialExpiredBanner` already uses. It also uses a
-wider window than the email (any time `current_period_end` is within 10
-days, not just exactly the 10-day/5-day marks) so it stays visible
-"from login" on every day in between, not just flashing on the two exact
-threshold days the email fires on.
-
-## Existing tenants on the old Stripe pricing
-
-Checked directly (`php artisan tinker` against this environment's own DB)
-before writing the migration that drops Cashier's schema: **zero tenants
-exist anywhere with a non-null `plan`** in this local/test environment, so
-there was no live data this touched. Nothing here is a live migration that
-ran against real subscribers.
+Checked directly (`php artisan tinker`/`psql` against this environment's
+own DB) before each processor-swap migration that dropped the previous
+processor's schema: **zero tenants exist anywhere with a non-null `plan`**
+in this local/test environment, so there was no live data any of these
+touched. Nothing here is a live migration that ran against real
+subscribers.
 
 If a real environment (staging or later production) ever does have tenants
-on the old Starter/Growth/Pro tiers when this ships:
+on a prior processor/pricing tier when a future swap ships:
 
 - **`tenant.plan`/`tenant.status` are never silently rewritten.** Nothing
-  in this change touches an existing tenant row — `plan`/`status`/
-  `billing_interval` only ever change via `Tenant::startTrial()` (trial
-  start) or a real webhook event (conversion/cancellation/resumption).
-  An already-`active` tenant with `plan = 'growth'` (a key that no longer
-  exists in `config('plans')`) stays exactly `active`/`growth` until
-  something *they* do changes it.
-- **Their real Stripe subscription would need to be handled separately,
-  outside this app's code**, before `laravel/cashier` and the `subscriptions`
-  table are dropped for real (this migration already ran here because
-  there was nothing to preserve) — either migrate them to Lemon Squeezy
-  checkouts manually, or keep charging them through Stripe on a legacy
-  path until they churn or are moved over deliberately. This app has no
-  automatic Stripe→Lemon Squeezy subscription migration tool; building one
-  was out of scope for this change and would need its own explicit
-  decision before any environment with real subscribers runs these
-  migrations.
-- `SubscriptionController::show`'s payload returns whatever `tenant.plan`
-  actually is, even an old three-tier key the frontend no longer has a
-  display name for — `BillingSection.tsx` falls back to showing the raw
-  key rather than crashing (see that component's `PLAN_NAMES` lookup).
+  in a processor swap touches an existing tenant row —
+  `plan`/`status`/`billing_interval` only ever change via
+  `Tenant::startTrial()` (trial start) or a real webhook event
+  (conversion/cancellation/resumption).
+- **A real subscription on the prior processor would need to be handled
+  separately, outside this app's code**, before that processor's schema
+  is dropped for real (every drop migration in this app's history already
+  ran here because there was nothing to preserve) — either migrate
+  subscribers to the new processor's checkout manually, or keep charging
+  them through the old processor on a legacy path until they churn or are
+  moved over deliberately. This app has no automatic cross-processor
+  subscription migration tool; building one is out of scope for a schema
+  swap and needs its own explicit decision before any environment with
+  real subscribers runs these migrations.
 
-## Test-mode Lemon Squeezy objects
+## Test-mode Paddle credentials
 
-`config/plans.php`'s `LEMON_SQUEEZY_VARIANT_MONTHLY`/`LEMON_SQUEEZY_VARIANT_ANNUAL`
-need to point at real Lemon Squeezy test-mode Variant objects (one product,
-two variants — $20/mo and $200/yr), and `LEMON_SQUEEZY_API_KEY`/
-`LEMON_SQUEEZY_STORE`/`LEMON_SQUEEZY_SIGNING_SECRET` need real test-mode
-values, before the conversion flow can actually call Lemon Squeezy
-successfully — in manual testing, in `tests/Feature/Billing/TrialConversionTest.php`
-(a real checkout-URL creation call), and in
-`tests/Feature/Billing/LemonSqueezyWebhookSignatureTest.php` (signature
-verification only needs a signing secret, not a full API key — that one
-runs regardless). Until real credentials exist, checkout-creation and
-customer-portal tests are `markTestSkipped`, same pattern the old Stripe
-tests used for a missing `cashier.secret`.
+`config/plans.php`'s `PADDLE_PRICE_MONTHLY`/`PADDLE_PRICE_ANNUAL` need to
+point at real Paddle sandbox Price objects (one Product, two Prices — $20/mo
+and $200/yr), and `PADDLE_SELLER_ID`/`PADDLE_AUTH_CODE`/
+`PADDLE_CLIENT_SIDE_TOKEN`/`PADDLE_WEBHOOK_SECRET` need real sandbox
+values, before the conversion flow can call Paddle's real sandbox API
+end-to-end (`PADDLE_SANDBOX=true` — `Cashier::apiUrl()` resolves to
+`sandbox-api.paddle.com`).
+
+`tests/Feature/Billing/SubscribeCheckoutTest.php`'s checkout tests don't
+need real sandbox credentials to run and pass — they use `Http::fake()`
+to stand in for Paddle's own API, proving the request/response shape this
+app builds without a live network call.
+`tests/Feature/Billing/PaddleWebhookSignatureTest.php`/
+`PaddleWebhookStatusTest.php` similarly prove signature verification and
+the full event → `tenant.status` mapping (including `past_due`) using
+Cashier's real `VerifyWebhookSignature` middleware and realistic Paddle
+payload shapes, all without needing Paddle's live infrastructure. What
+none of this proves is a webhook actually delivered by Paddle's real
+servers over the public internet, or a checkout completed through Paddle's
+real overlay UI in a browser — that needs real sandbox credentials, a
+publicly reachable webhook URL (a tunnel in local dev), and either a human
+completing a sandbox checkout or driving Paddle's sandbox API directly.

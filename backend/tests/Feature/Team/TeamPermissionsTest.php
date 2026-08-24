@@ -122,15 +122,26 @@ test('CRITICAL: a member cannot reach team management under any permission combi
     expect($status->json('data.members'))->toHaveCount(2);
 });
 
-// 'CRITICAL: a member cannot reach billing under any permission
-// combination' removed — POST /subscribe, GET/PATCH /subscription, and
-// GET /subscription/portal no longer exist (removed with the Lemon
-// Squeezy package, see SubscriptionController's deletion). Re-add this
-// CRITICAL owner-only-billing coverage once a Paddle-backed
-// SubscriptionController and its routes exist again — billing must stay
-// owner-only then exactly as it was here (EnsureTenantOwner's own
-// docblock), this is a real gap until that rebuild lands, not an
-// intentional relaxation.
+test('CRITICAL: a member cannot reach billing under any permission combination, including all four resources granted', function () {
+    [, $tenantId] = seedCustomerAccount('No Billing Access Owner');
+    [$memberToken] = seedTeamMember($tenantId, 'No Billing Access Member', [
+        'contacts' => true, 'templates' => true, 'reviews' => true, 'analytics' => true,
+    ]);
+
+    $auth = fn () => $this->withHeader('Authorization', "Bearer {$memberToken}");
+
+    $subscribe = $auth()->postJson('/api/v1/subscribe', ['interval' => 'monthly']);
+    $subscribe->assertStatus(403);
+    expect($subscribe->json('error'))->toBe('owner_only');
+
+    $auth()->getJson('/api/v1/subscription')->assertStatus(403);
+
+    // PATCH /subscription (auto-renew toggle) and GET /subscription/portal
+    // (Paddle's customer portal) don't exist yet (checkout + webhook
+    // handling only, per this round's scope) — extend this test with
+    // those two assertions once they're rebuilt; billing stays
+    // owner-only for them too, same reasoning as above.
+});
 
 test('issuing a webhook API key is gated by the contacts permission — closes the bypass a member could otherwise use to create contacts through the webhook API', function () {
     [, $tenantId] = seedCustomerAccount('Api Key Gate Owner');

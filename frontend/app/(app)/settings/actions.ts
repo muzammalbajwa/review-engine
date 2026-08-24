@@ -34,7 +34,11 @@ export type Tenant = {
   quick_add_token: string;
   created_at: string;
   plan: string | null;
-  status: "pending" | "trialing" | "active" | "trial_expired" | "canceled";
+  // "past_due": a failed Paddle payment during its dunning retry window
+  // — does NOT block sending access (Tenant::sendingBlockedReason() has
+  // no branch for it, deliberately — .claude/BILLING.md's dunning
+  // design). Only "canceled" (Paddle's dunning genuinely exhausted) does.
+  status: "pending" | "trialing" | "active" | "trial_expired" | "past_due" | "canceled";
   trial_ends_at: string | null;
   // Non-null only while status is "active" and current_period_end is
   // within 10 days — the dashboard-banner counterpart to

@@ -267,3 +267,79 @@ function makeConnectedGbpConnection(string $tenantId, string $reviewLink = 'http
         $connection->save();
     });
 }
+
+/**
+ * A Paddle Customer row already existing for this tenant's owner —
+ * mirrors exactly what Billable::checkout()'s createAsCustomer() call
+ * does synchronously at real checkout time (SubscriptionController::
+ * subscribe()), before Paddle ever sends a webhook. PaddleWebhookController
+ * resolves tenant_id by looking this row up (paddle_id -> tenant_id),
+ * never from custom_data alone — see that controller's docblock — so
+ * every webhook-handling test needs one of these to exist first, the
+ * same way a real webhook could never arrive for a tenant that hadn't
+ * already started a real checkout.
+ */
+function seedPaddleCustomer(string $tenantId, int $userId, string $paddleCustomerId): void
+{
+    DB::transaction(function () use ($tenantId, $userId, $paddleCustomerId) {
+        DB::statement('SELECT set_config(?, ?, true)', ['app.current_tenant_id', $tenantId]);
+
+        $user = User::query()->find($userId);
+
+        // BelongsToTenant's creating-hook auto-fill reads
+        // app(CurrentTenant::class)->id() — the PHP-side singleton, not
+        // the Postgres session var set above — which this helper never
+        // sets. Explicit assignment before save() (same "explicit always
+        // wins" rule the trait documents) is also the established
+        // convention every other tenant-row test helper in this file
+        // uses (makeVerifiedSenderIdentity, makeConnectedGbpConnection),
+        // rather than relying on a process-wide singleton that could
+        // just as easily be leaking a *different* tenant's id left over
+        // from an earlier test in the same PHP process.
+        $customer = $user->customer()->make([
+            'paddle_id' => $paddleCustomerId,
+            'name' => $user->name,
+            'email' => $user->email,
+        ]);
+        $customer->tenant_id = $tenantId;
+        $customer->save();
+    });
+}
+
+/**
+ * Paddle's real webhook signing scheme
+ * (developer.paddle.com/webhook-reference/verifying-webhooks, verified
+ * directly against the installed Laravel\Paddle\Http\Middleware\
+ * VerifyWebhookSignature source, not assumed): `ts=<unix>;h1=<hex>` in
+ * the Paddle-Signature header, hash = HMAC-SHA256("{$ts}:{$rawBody}",
+ * $secret). $timestamp defaults to now() — the middleware's own
+ * maximumVariance (5 seconds) rejects anything signed further in the
+ * past than that, so a test that wants to prove the freshness check
+ * itself must pass an explicitly stale $timestamp.
+ */
+function paddleSignatureHeader(string $payload, string $secret, ?int $timestamp = null): string
+{
+    $timestamp ??= time();
+    $hash = hash_hmac('sha256', "{$timestamp}:{$payload}", $secret);
+
+    return "ts={$timestamp};h1={$hash}";
+}
+
+/**
+ * POSTs a real, correctly-signed Paddle webhook request — every
+ * PaddleWebhookController test goes through this rather than calling the
+ * controller directly, so VerifyWebhookSignature (route middleware,
+ * applied unconditionally in routes/api.php) is exercised for real on
+ * every one of them, not just the dedicated signature tests.
+ */
+function postSignedPaddleWebhook(array $payload, ?string $secret = null): \Illuminate\Testing\TestResponse
+{
+    $secret ??= config('cashier.webhook_secret');
+    $body = json_encode($payload);
+    $signature = paddleSignatureHeader($body, $secret);
+
+    return test()->call('POST', '/api/v1/paddle/webhook', [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_PADDLE_SIGNATURE' => $signature,
+    ], $body);
+}

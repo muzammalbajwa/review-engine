@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Paddle\Billable;
 use Laravel\Sanctum\HasApiTokens;
 use Laravel\Sanctum\NewAccessToken;
 
@@ -28,7 +29,7 @@ use Laravel\Sanctum\NewAccessToken;
 class User extends Authenticatable implements MustVerifyEmailContract
 {
     /** @use HasFactory<UserFactory> */
-    use BelongsToTenant, HasApiTokens, HasFactory, MustVerifyEmail, Notifiable;
+    use BelongsToTenant, Billable, HasApiTokens, HasFactory, MustVerifyEmail, Notifiable;
 
     /**
      * The attributes that are mass assignable.
