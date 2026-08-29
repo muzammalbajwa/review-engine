@@ -1,0 +1,44 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy backend
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            cd /home/doorplaning.co.uk/reviewengine-monorepo
+            git pull origin main
+            cd backend
+            /usr/local/lsws/lsphp83/bin/php /usr/local/bin/composer install --no-dev --optimize-autoloader --no-interaction
+            /usr/local/lsws/lsphp83/bin/php artisan migrate --force --database=pgsql_owner
+            /usr/local/lsws/lsphp83/bin/php artisan config:cache
+            /usr/local/lsws/lsphp83/bin/php artisan route:cache
+            /usr/local/lsws/lsphp83/bin/php artisan view:cache
+            chown -R doorp2181:nobody /home/doorplaning.co.uk/reviewengine-monorepo/backend
+
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    needs: deploy-backend
+    steps:
+      - name: Deploy frontend
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            cd /home/doorplaning.co.uk/reviewengine-monorepo/frontend
+            npm ci
+            npm run build
+            pm2 restart reviewengine-frontend
