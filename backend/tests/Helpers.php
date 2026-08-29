@@ -383,6 +383,95 @@ function subscriptionCreatedPayload(string $customerId, string $subscriptionId, 
 }
 
 /**
+ * Real Paddle shape (verified against Paddle's own developer docs while
+ * building payment_logs, not guessed): `data.payments` is sorted
+ * most-recent-attempt-first, each entry carrying its own `error_code`
+ * and `created_at` — PaddleWebhookController::handleTransactionPaymentFailed
+ * reads payments[0] for both. `$errorCode` defaults to a real Paddle
+ * decline code so every pre-existing caller of this helper keeps
+ * producing a realistic payload without having to opt in. Originally
+ * PaddleWebhookStatusTest.php's own helper — moved here (this file's own
+ * docblock: moved out the moment a second file needs the same helper)
+ * now that PaymentLogTest.php needs it too.
+ */
+function transactionPaymentFailedPayload(string $customerId, string $subscriptionId, string $tenantId, string $errorCode = 'declined_not_retryable'): array
+{
+    return [
+        'event_id' => 'evt_'.Str::random(10),
+        'event_type' => 'transaction.payment_failed',
+        'data' => [
+            'id' => 'txn_'.Str::random(14),
+            'subscription_id' => $subscriptionId,
+            'customer_id' => $customerId,
+            'currency_code' => 'USD',
+            'details' => ['totals' => ['total' => '2000', 'tax' => '0']],
+            'payments' => [
+                [
+                    'payment_attempt_id' => (string) Str::uuid(),
+                    'status' => 'error',
+                    'error_code' => $errorCode,
+                    'created_at' => now()->toIso8601String(),
+                    'captured_at' => null,
+                ],
+            ],
+            'custom_data' => ['tenant_id' => $tenantId],
+        ],
+    ];
+}
+
+/**
+ * Same move as transactionPaymentFailedPayload() above, same reason.
+ */
+function transactionCompletedPayload(string $customerId, string $subscriptionId, string $tenantId): array
+{
+    return [
+        'event_id' => 'evt_'.Str::random(10),
+        'event_type' => 'transaction.completed',
+        'data' => [
+            'id' => 'txn_'.Str::random(14),
+            'subscription_id' => $subscriptionId,
+            'customer_id' => $customerId,
+            'invoice_number' => 'INV-'.Str::random(6),
+            'status' => 'completed',
+            'details' => ['totals' => ['total' => '2000', 'tax' => '0']],
+            'currency_code' => 'USD',
+            'billed_at' => now()->toIso8601String(),
+            'custom_data' => ['tenant_id' => $tenantId],
+        ],
+    ];
+}
+
+/**
+ * A real adjustment.created/adjustment.updated shape (verified against
+ * Paddle's own developer docs, not guessed — see
+ * PaddleWebhookController::maybeLogRefund's docblock for why this, not a
+ * `transaction.refunded` event, is Paddle Billing's real refund signal).
+ * $transactionId must be the id of a transaction this same test already
+ * posted via transactionCompletedPayload() — a refund always references
+ * the original charge it's refunding.
+ */
+function adjustmentPayload(string $eventType, string $customerId, string $subscriptionId, string $transactionId, string $tenantId, string $status = 'approved', string $action = 'refund'): array
+{
+    return [
+        'event_id' => 'evt_'.Str::random(10),
+        'event_type' => $eventType,
+        'data' => [
+            'id' => 'adj_'.Str::random(14),
+            'action' => $action,
+            'status' => $status,
+            'transaction_id' => $transactionId,
+            'subscription_id' => $subscriptionId,
+            'customer_id' => $customerId,
+            'currency_code' => 'USD',
+            'totals' => ['subtotal' => '2000', 'tax' => '0', 'total' => '2000', 'fee' => '0', 'earnings' => '2000'],
+            'created_at' => now()->toIso8601String(),
+            'updated_at' => now()->toIso8601String(),
+            'custom_data' => ['tenant_id' => $tenantId],
+        ],
+    ];
+}
+
+/**
  * Convenience wrapper most tests actually want: seeds the Paddle Customer
  * row (mirrors createAsCustomer() at real checkout time) and posts a real,
  * signed subscription.created webhook through the full controller/Cashier

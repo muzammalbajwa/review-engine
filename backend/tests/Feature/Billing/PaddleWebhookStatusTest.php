@@ -54,38 +54,9 @@ function subscriptionCanceledPayload(string $customerId, string $subscriptionId,
     ];
 }
 
-function transactionPaymentFailedPayload(string $customerId, string $subscriptionId, string $tenantId): array
-{
-    return [
-        'event_id' => 'evt_'.Str::random(10),
-        'event_type' => 'transaction.payment_failed',
-        'data' => [
-            'id' => 'txn_'.Str::random(14),
-            'subscription_id' => $subscriptionId,
-            'customer_id' => $customerId,
-            'custom_data' => ['tenant_id' => $tenantId],
-        ],
-    ];
-}
-
-function transactionCompletedPayload(string $customerId, string $subscriptionId, string $tenantId): array
-{
-    return [
-        'event_id' => 'evt_'.Str::random(10),
-        'event_type' => 'transaction.completed',
-        'data' => [
-            'id' => 'txn_'.Str::random(14),
-            'subscription_id' => $subscriptionId,
-            'customer_id' => $customerId,
-            'invoice_number' => 'INV-'.Str::random(6),
-            'status' => 'completed',
-            'details' => ['totals' => ['total' => '2000', 'tax' => '0']],
-            'currency_code' => 'USD',
-            'billed_at' => now()->toIso8601String(),
-            'custom_data' => ['tenant_id' => $tenantId],
-        ],
-    ];
-}
+// transactionPaymentFailedPayload()/transactionCompletedPayload() moved to
+// tests/Helpers.php — PaymentLogTest.php needs them too (same shared-helper
+// convention this file already lives by, see Helpers.php's own docblock).
 
 function paddleWebhookTenantStatus(string $tenantId): string
 {

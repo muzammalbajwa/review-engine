@@ -7,6 +7,12 @@ type Tenant = {
   name: string;
   type: "admin" | "customer";
   created_at: string;
+  plan: string | null;
+  billing_interval: "monthly" | "annual" | null;
+  status: "pending" | "trialing" | "active" | "past_due" | "trial_expired" | "canceled";
+  trial_ends_at: string | null;
+  auto_renew: boolean | null;
+  next_renewal_date: string | null;
 };
 
 /**
@@ -18,11 +24,16 @@ type Tenant = {
  * empty page. Chrome (the read-only banner, admin nav) comes from
  * app/admin/layout.tsx, not this page.
  *
- * The billing breakdown card that used to sit above the tenants table
- * (GET /admin/billing-breakdown, AdminBillingController) was removed with
- * the Lemon Squeezy package — it aggregated against
- * lemon_squeezy_subscriptions, which no longer exists. Pending a
- * Paddle-backed rebuild.
+ * Per-tenant billing state (plan/interval/status/renewal/auto-renew) now
+ * comes back on this same GET /admin/tenants response
+ * (AdminTenantController::index()) and is rendered inline in
+ * TenantsTable — an admin scanning this list can see who's past_due
+ * without a second view. The aggregate MRR/ARR breakdown card that used
+ * to sit above the table (GET /admin/billing-breakdown,
+ * AdminBillingController) is a separate thing and is still not rebuilt —
+ * it aggregated against lemon_squeezy_subscriptions, which no longer
+ * exists, and was removed with the Lemon Squeezy package. Pending a
+ * Paddle-backed rebuild if that aggregate view is still wanted.
  */
 export default async function AdminTenantsPage() {
   await requireToken();

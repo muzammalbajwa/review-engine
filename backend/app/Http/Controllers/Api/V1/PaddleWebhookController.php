@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Models\Customer;
+use App\Models\PaymentLog;
 use App\Models\Subscription;
 use App\Models\Tenant;
 use App\Support\Tenancy\CurrentTenant;
@@ -137,6 +138,38 @@ class PaddleWebhookController extends CashierWebhookController
     }
 
     /**
+     * Cashier's base handleTransactionCompleted() already creates the
+     * `transactions` row (see that table's own migration for what it is
+     * and isn't) — this override runs it first via parent::, then adds
+     * the independent, append-only payment_logs row (.claude/DATABASE.md
+     * payment-history requirement). See logPayment()'s own docblock for
+     * why these two tables coexist rather than one replacing the other.
+     */
+    protected function handleTransactionCompleted(array $payload): void
+    {
+        parent::handleTransactionCompleted($payload);
+
+        $tenantId = app(CurrentTenant::class)->id();
+
+        if ($tenantId === null) {
+            return;
+        }
+
+        $data = $payload['data'];
+
+        $this->logPayment(
+            tenantId: $tenantId,
+            paddleTransactionId: (string) $data['id'],
+            status: PaymentLog::STATUS_SUCCEEDED,
+            amount: (string) $data['details']['totals']['total'],
+            currency: (string) $data['currency_code'],
+            failureReason: null,
+            billingInterval: $this->billingIntervalForSubscriptionId($data['subscription_id'] ?? null),
+            occurredAt: Carbon::parse($data['billed_at'], 'UTC'),
+        );
+    }
+
+    /**
      * Cashier's base WebhookController has NO handler for this event at
      * all — 'transaction.payment_failed' isn't in its dynamic-dispatch
      * method list (verified against the installed package source), so
@@ -152,14 +185,15 @@ class PaddleWebhookController extends CashierWebhookController
      * already really ended — past_due only ever means "was paying,
      * temporarily isn't."
      *
-     * Deliberately does not create a Transaction row the way
-     * handleTransactionCompleted does — this app doesn't track failed
-     * attempts as first-class Transaction records (that table's own
-     * status vocabulary — draft/ready/billed/paid/completed/canceled/
-     * past_due — assumes a real charge object, and Cashier's base
-     * controller never persists one for a failure either); the audit
-     * trail for this event is the Log::info call below plus whatever
-     * Paddle's own dashboard already records.
+     * Still doesn't create a Transaction row the way
+     * handleTransactionCompleted does (Cashier's own `transactions`
+     * table has no concept of a failed attempt — see that table's
+     * migration) — but DOES now write a payment_logs row (added
+     * alongside the pre-existing Log::info call, not replacing it).
+     * failure_reason is Paddle's own real error_code, taken from
+     * data.payments[0] — that array is documented as sorted
+     * most-recent-attempt-first, so index 0 is the attempt that
+     * actually triggered this event, not an arbitrary one.
      */
     protected function handleTransactionPaymentFailed(array $payload): void
     {
@@ -176,6 +210,160 @@ class PaddleWebhookController extends CashierWebhookController
             'paddle_transaction_id' => $payload['data']['id'] ?? null,
             'paddle_subscription_id' => $payload['data']['subscription_id'] ?? null,
         ]);
+
+        $data = $payload['data'];
+        $latestPayment = $data['payments'][0] ?? null;
+
+        $this->logPayment(
+            tenantId: $tenantId,
+            paddleTransactionId: (string) ($data['id'] ?? ''),
+            status: PaymentLog::STATUS_FAILED,
+            amount: (string) ($data['details']['totals']['total'] ?? '0'),
+            currency: (string) ($data['currency_code'] ?? ''),
+            failureReason: is_array($latestPayment) ? ($latestPayment['error_code'] ?? null) : null,
+            billingInterval: $this->billingIntervalForSubscriptionId($data['subscription_id'] ?? null),
+            // Real Paddle payloads always carry one of these (per Paddle's
+            // own docs), so this chain should never actually bottom out —
+            // the final `?? now()` is a defensive last resort only (never
+            // Paddle's own timestamp, so never silently mislabeled as one;
+            // logged if it's ever hit, since that would mean Paddle sent a
+            // shape this app doesn't recognize).
+            occurredAt: Carbon::parse(
+                $this->firstPresentTimestamp($latestPayment['created_at'] ?? null, $data['updated_at'] ?? null, $data['created_at'] ?? null)
+                    ?? $this->logUnexpectedPayloadShape($tenantId, $data),
+                'UTC'
+            ),
+        );
+    }
+
+    private function firstPresentTimestamp(?string ...$candidates): ?string
+    {
+        foreach ($candidates as $candidate) {
+            if ($candidate !== null) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private function logUnexpectedPayloadShape(string $tenantId, array $data): string
+    {
+        Log::warning('paddle webhook: transaction.payment_failed had no usable timestamp field, defaulting occurred_at to now()', [
+            'tenant_id' => $tenantId,
+            'paddle_transaction_id' => $data['id'] ?? null,
+        ]);
+
+        return now()->toIso8601String();
+    }
+
+    /**
+     * Paddle Billing (the API this app uses — confirmed via
+     * Laravel\Paddle\Transaction::refund(), which itself POSTs to the
+     * `adjustments` endpoint) has no `transaction.refunded` event; that
+     * name doesn't appear in Paddle's real current webhook vocabulary
+     * (checked directly against Paddle's own developer docs for this
+     * task, not assumed). A refund's real signal is an Adjustment
+     * object with action='refund': adjustment.created fires the moment
+     * one is requested — already status='approved' if Paddle
+     * auto-approves it instantly, which it commonly does — and
+     * adjustment.updated fires again if a 'pending_approval' one later
+     * resolves after manual review. Both routes call the same method
+     * here; only a real 'approved' status (money actually moved) is
+     * logged as 'refunded'. Other real adjustment actions (credit,
+     * chargeback, and their *_reverse counterparts) are deliberately
+     * left unmapped — conflating a chargeback with a refund here would
+     * misrepresent it, and this app doesn't need to track those today.
+     */
+    protected function handleAdjustmentCreated(array $payload): void
+    {
+        $this->maybeLogRefund($payload);
+    }
+
+    protected function handleAdjustmentUpdated(array $payload): void
+    {
+        $this->maybeLogRefund($payload);
+    }
+
+    private function maybeLogRefund(array $payload): void
+    {
+        $tenantId = app(CurrentTenant::class)->id();
+
+        if ($tenantId === null) {
+            return;
+        }
+
+        $data = $payload['data'];
+
+        if (($data['action'] ?? null) !== 'refund' || ($data['status'] ?? null) !== 'approved') {
+            return;
+        }
+
+        $this->logPayment(
+            tenantId: $tenantId,
+            paddleTransactionId: (string) $data['transaction_id'],
+            status: PaymentLog::STATUS_REFUNDED,
+            amount: (string) $data['totals']['total'],
+            currency: (string) $data['currency_code'],
+            failureReason: null,
+            billingInterval: $this->billingIntervalForSubscriptionId($data['subscription_id'] ?? null),
+            occurredAt: Carbon::parse(
+                $this->firstPresentTimestamp($data['updated_at'] ?? null, $data['created_at'] ?? null)
+                    ?? $this->logUnexpectedPayloadShape($tenantId, $data),
+                'UTC'
+            ),
+        );
+    }
+
+    /**
+     * payment_logs is additive to, and independent of, Cashier's own
+     * `transactions` table (see that table's migration and this
+     * controller's Transaction-handling docblock): that table only ever
+     * holds one row per Paddle transaction, mutated in place by every
+     * transaction.updated (so a later refund overwrites, rather than
+     * appends to, the original 'completed' state), and never gets a row
+     * at all for a failed attempt. payment_logs rows are never mutated
+     * once written — firstOrCreate() keyed on (paddle_transaction_id,
+     * status) is this table's own idempotency layer, independent of
+     * Cashier's transactionExists() check on the `transactions` table.
+     * See the migration's own docblock for why that key is composite
+     * rather than paddle_transaction_id alone.
+     */
+    private function logPayment(
+        string $tenantId,
+        string $paddleTransactionId,
+        string $status,
+        string $amount,
+        string $currency,
+        ?string $failureReason,
+        ?string $billingInterval,
+        Carbon $occurredAt,
+    ): void {
+        PaymentLog::query()->firstOrCreate(
+            [
+                'paddle_transaction_id' => $paddleTransactionId,
+                'status' => $status,
+            ],
+            [
+                'tenant_id' => $tenantId,
+                'amount' => $amount,
+                'currency' => $currency,
+                'failure_reason' => $failureReason,
+                'billing_interval' => $billingInterval,
+                'occurred_at' => $occurredAt,
+            ]
+        );
+    }
+
+    private function billingIntervalForSubscriptionId(?string $paddleSubscriptionId): ?string
+    {
+        if ($paddleSubscriptionId === null) {
+            return null;
+        }
+
+        $subscription = Subscription::query()->where('paddle_id', $paddleSubscriptionId)->first();
+
+        return $subscription === null ? null : $this->intervalForSubscription($subscription);
     }
 
     private function customerIdFromPayload(array $payload): ?string
