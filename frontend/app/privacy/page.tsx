@@ -362,16 +362,14 @@ export default function PrivacyPage() {
           <Section id="contact" title="Contact">
             <p>
               Questions about this policy, or requests to access/correct/delete data, can be sent to{" "}
-              <a href="mailto:hello@example.com" className="text-primary underline-offset-4 hover:underline">
-                hello@example.com
+              <a href="mailto:support@reviewengine24.com" className="text-primary underline-offset-4 hover:underline">
+                support@reviewengine24.com
               </a>
               .
             </p>
             <LegalReviewNote>
-              this uses the placeholder contact address already in the codebase
-              (<code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">hello@example.com</code>) —
-              replace with your real support/privacy contact address, and consider whether GDPR requires
-              naming a specific Data Protection Officer or EU/UK representative for your business.
+              consider whether GDPR requires naming a specific Data Protection Officer or EU/UK
+              representative for your business.
             </LegalReviewNote>
           </Section>
         </main>

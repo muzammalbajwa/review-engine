@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\AnalyticsController;
 use App\Http\Controllers\Api\V1\ApiKeyController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ContactController;
+use App\Http\Controllers\Api\V1\ContactMessageController;
 use App\Http\Controllers\Api\V1\GbpController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\MessageClickController;
@@ -115,6 +116,12 @@ Route::prefix('v1')->group(function () {
         Route::post('/', [WebhookContactController::class, 'store'])
             ->middleware(['abilities:contacts:create', 'throttle:webhook-api', 'sending.access']);
     });
+
+    // Public marketing contact form (reviewengine.com/contact) — no
+    // Sanctum auth, no 'tenant' group: a prospect who hasn't signed up has
+    // neither. throttle:contact rate-limits per-ip only (no token concept
+    // here); ContactMessageController handles the honeypot field itself.
+    Route::post('/contact', [ContactMessageController::class, 'store'])->middleware('throttle:contact');
 
     // Public quick-add link (reviewengine.com/quick/{token}) — no
     // Sanctum auth, no 'tenant' group (that bundles auth:sanctum).

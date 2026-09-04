@@ -311,8 +311,8 @@ export default function TermsPage() {
           <Section id="contact" title="Contact">
             <p>
               Questions about these terms can be sent to{" "}
-              <a href="mailto:hello@example.com" className="text-primary underline-offset-4 hover:underline">
-                hello@example.com
+              <a href="mailto:support@reviewengine24.com" className="text-primary underline-offset-4 hover:underline">
+                support@reviewengine24.com
               </a>
               .
             </p>

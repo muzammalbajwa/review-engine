@@ -93,6 +93,12 @@ class TenantController extends Controller
             'permissions' => $user->isOwner()
                 ? array_fill_keys(User::PERMISSION_RESOURCES, true)
                 : array_merge(array_fill_keys(User::PERMISSION_RESOURCES, false), $user->permissions ?? []),
+            // The CALLING user's own name/email — added so /contact can
+            // pre-fill a logged-in tenant's form without a second round
+            // trip (same "already fetched app-wide" reasoning as the rest
+            // of this payload). Not sensitive beyond what the user's own
+            // session already implies.
+            'user' => ['name' => $user->name, 'email' => $user->email],
         ];
     }
 

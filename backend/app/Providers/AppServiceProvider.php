@@ -89,6 +89,21 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        // Public marketing contact form (POST /api/v1/contact) — no
+        // tenant/token to key on (a prospect who hasn't signed up has
+        // neither), so per-ip only, same reasoning as quick-add/click's
+        // own per-ip leg. Two windows, not one: a burst cap (3/min) for a
+        // fat-fingered double-submit or a fast script, and a sustained
+        // cap (20/day) for a slower drip a burst limit alone wouldn't
+        // catch — tuned lower than quick-add's since this is a low-volume
+        // public form, not a tool a real tenant uses repeatedly all day.
+        RateLimiter::for('contact', function (Request $request) {
+            return [
+                Limit::perMinute(3)->by('contact-ip:'.$request->ip()),
+                Limit::perDay(20)->by('contact-ip:'.$request->ip()),
+            ];
+        });
+
         // .claude/CLAUDE.md webhook API spec: "Rate limiting tied to the
         // tenant's actual subscription plan... not one global limit for
         // everyone." Keyed by tenant (never ip — these are server-to-server

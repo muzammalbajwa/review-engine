@@ -59,4 +59,14 @@ return [
         'alert_email' => env('OPS_ALERT_EMAIL'),
     ],
 
+    // The public /contact form's send-to address (ContactMessageController).
+    // Unlike ops.alert_email above, blank here is NOT safe to silently
+    // swallow — this is a real prospect expecting a reply, not an internal
+    // alert nobody but the team would miss — so ContactMessageController
+    // fails the request closed (502) rather than reporting "sent" when
+    // this is unset or misconfigured.
+    'support' => [
+        'inbox' => env('SUPPORT_INBOX_EMAIL'),
+    ],
+
 ];

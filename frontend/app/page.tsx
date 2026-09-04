@@ -432,8 +432,11 @@ function Footer() {
 
           <div className="flex flex-col gap-3">
             <p className={FOOTER_HEADING_CLASS}>Contact</p>
-            <a href="mailto:hello@example.com" className={FOOTER_LINK_CLASS}>
-              hello@example.com
+            <Link href="/contact" className={FOOTER_LINK_CLASS}>
+              Contact us
+            </Link>
+            <a href="mailto:support@reviewengine24.com" className={FOOTER_LINK_CLASS}>
+              support@reviewengine24.com
             </a>
           </div>
         </nav>
