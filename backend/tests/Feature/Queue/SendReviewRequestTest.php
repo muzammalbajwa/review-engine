@@ -7,9 +7,11 @@ use App\Models\Contact;
 use App\Models\Message;
 use App\Models\Template;
 use App\Models\TimingRule;
+use App\Notifications\ReviewRequestSendFailed;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Notification;
 
 /**
  * .claude/QUEUE.md's three mechanics + .claude/CLAUDE.md golden rule #3
@@ -123,7 +125,118 @@ test('a contact with no email is skipped, not crashed on, and retried later', fu
     (new SendReviewRequest($contactId, 1))->handle();
 
     Mail::assertNothingSent();
-    Bus::assertDispatched(SendReviewRequest::class, fn (SendReviewRequest $job) => $job->contactId === $contactId && $job->step === 1);
+    // QA-audit fix (Finding 5): the redispatch carries skipRetryCount + 1
+    // (1, from a fresh 0) — this is the counter MAX_SKIP_RETRIES below
+    // is checked against, proving a first-time skip doesn't already
+    // start pre-loaded near the cap.
+    Bus::assertDispatched(SendReviewRequest::class, fn (SendReviewRequest $job) => $job->contactId === $contactId && $job->step === 1 && $job->skipRetryCount === 1);
+});
+
+test('QA-audit fix (Finding 5): a skip-and-retry one step below the cap still redispatches normally', function () {
+    [$token, $tenantId] = seedCustomerAccount('One Below Cap');
+    makeVerifiedSenderIdentity($tenantId);
+    makeConnectedGbpConnection($tenantId);
+    setTenantBusinessHoursWideOpen($tenantId);
+
+    $response = test()->withHeader('Authorization', "Bearer {$token}")
+        ->postJson('/api/v1/contacts/quick-add', ['name' => 'Almost At Cap', 'phone' => '+15555550100'])
+        ->assertCreated();
+    $contactId = $response->json('data.id');
+
+    Mail::fake();
+    Bus::fake([SendReviewRequest::class]);
+
+    (new SendReviewRequest($contactId, 1, SendReviewRequest::MAX_SKIP_RETRIES - 1))->handle();
+
+    Bus::assertDispatched(
+        SendReviewRequest::class,
+        fn (SendReviewRequest $job) => $job->contactId === $contactId
+            && $job->step === 1
+            && $job->skipRetryCount === SendReviewRequest::MAX_SKIP_RETRIES
+    );
+});
+
+test('QA-audit fix (Finding 5): a skip-and-retry AT the cap gives up instead of requeuing forever', function () {
+    [$token, $tenantId] = seedCustomerAccount('At The Cap');
+    makeVerifiedSenderIdentity($tenantId);
+    makeConnectedGbpConnection($tenantId);
+    setTenantBusinessHoursWideOpen($tenantId);
+
+    $response = test()->withHeader('Authorization', "Bearer {$token}")
+        ->postJson('/api/v1/contacts/quick-add', ['name' => 'Never Resolves', 'phone' => '+15555550100'])
+        ->assertCreated();
+    $contactId = $response->json('data.id');
+
+    Mail::fake();
+    Bus::fake([SendReviewRequest::class]);
+
+    (new SendReviewRequest($contactId, 1, SendReviewRequest::MAX_SKIP_RETRIES))->handle();
+
+    // The whole point: no self-requeue once the cap is reached — this is
+    // what used to run forever, once an hour, indefinitely.
+    Bus::assertNotDispatched(SendReviewRequest::class);
+});
+
+test('QA-audit fix (Finding 5), real evidence: giving up at the cap lands a real row in failed_jobs and fires the real ops alert email — through a genuine queue round-trip, not a direct handle() call', function () {
+    config(['queue.default' => 'redis']);
+    config(['services.ops.alert_email' => 'ops@example.com']);
+
+    [$token, $tenantId] = seedCustomerAccount('Real Give Up');
+    makeVerifiedSenderIdentity($tenantId);
+    makeConnectedGbpConnection($tenantId);
+    setTenantBusinessHoursWideOpen($tenantId);
+
+    $response = test()->withHeader('Authorization', "Bearer {$token}")
+        ->postJson('/api/v1/contacts/quick-add', ['name' => 'Genuinely Stuck', 'phone' => '+15555550100'])
+        ->assertCreated();
+    $contactId = $response->json('data.id');
+
+    Notification::fake();
+
+    $failedBefore = DB::table('failed_jobs')->count();
+
+    // A real dispatch onto the real redis 'default' queue, at exactly the
+    // give-up boundary, then processed by the REAL `php artisan
+    // queue:work` command — not a direct ->handle() call, and not a
+    // hand-rolled pop()+fire() either. Both matter here specifically:
+    // (1) InteractsWithQueue::fail() is a no-op unless $this->job is set,
+    // which only happens when a job genuinely runs through the queue
+    // system, so a direct ->handle() call (as the two boundary tests
+    // above deliberately use, to test the condition fast) would silently
+    // skip the entire failed_jobs + alert path. (2) Writing the
+    // failed_jobs row is NOT something Job::fail()/the JobFailed event
+    // does by itself — confirmed directly in
+    // Illuminate\Queue\Console\WorkCommand::listenForEvents(), the actual
+    // JobFailed -> failed_jobs listener is registered by that Artisan
+    // command itself, nowhere else — so even a real pop()+fire() bypasses
+    // persistence entirely unless the real command runs. --once makes
+    // this terminate after exactly one job instead of daemonizing.
+    SendReviewRequest::dispatch($contactId, 1, SendReviewRequest::MAX_SKIP_RETRIES);
+    test()->artisan('queue:work', [
+        'connection' => 'redis',
+        '--queue' => 'default',
+        '--once' => true,
+    ]);
+
+    expect(DB::table('failed_jobs')->count())->toBe($failedBefore + 1);
+
+    $failedRow = DB::table('failed_jobs')->orderByDesc('id')->first();
+    expect($failedRow->exception)->toContain((string) SendReviewRequest::MAX_SKIP_RETRIES);
+    expect($failedRow->exception)->toContain('contact_has_no_email');
+
+    // QA-audit fix (Finding 5): this also proves the failing() -> failed()
+    // rename in SendReviewRequest.php actually matters — Laravel's real
+    // hook is failed(Throwable $e), never failing(); before that rename,
+    // $this->fail() above would still write the failed_jobs row (that
+    // part is pure framework behavior, name notwithstanding) but this
+    // notification would never have been dispatched at all, silently.
+    Notification::assertSentOnDemand(
+        ReviewRequestSendFailed::class,
+        function ($notification, $channels, $notifiable) use ($contactId) {
+            return $notifiable->routes['mail'] === 'ops@example.com'
+                && $notification->contactId === $contactId;
+        }
+    );
 });
 
 test('missing a verified sender identity skips the send and retries later, without crashing', function () {

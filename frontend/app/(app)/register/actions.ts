@@ -8,6 +8,11 @@ import { setSession } from "@/lib/session";
 export type RegisterState = {
   error: string | null;
   fields: Record<string, string[]> | null;
+  // QA-audit fix (Finding 3): echoed back so RegisterForm.tsx can
+  // re-populate name/business_name/email via defaultValue after any
+  // validation error — never includes password/password_confirmation,
+  // which must always come back empty regardless of what failed.
+  values: { name: string; business_name: string; email: string } | null;
 };
 
 type RegisterResponse = {
@@ -23,8 +28,10 @@ export async function register(_prevState: RegisterState, formData: FormData): P
   const password = String(formData.get("password") ?? "");
   const passwordConfirmation = String(formData.get("password_confirmation") ?? "");
 
+  const values = { name, business_name: businessName, email };
+
   if (!name || !businessName || !email || !password) {
-    return { error: "Fill in every field to create your account.", fields: null };
+    return { error: "Fill in every field to create your account.", fields: null, values };
   }
 
   const result = await apiFetch<RegisterResponse>("/register", {
@@ -40,7 +47,7 @@ export async function register(_prevState: RegisterState, formData: FormData): P
   });
 
   if (!result.ok) {
-    return { error: result.message, fields: result.fields };
+    return { error: result.message, fields: result.fields, values };
   }
 
   await setSession(result.data.token, result.data.user.is_admin);

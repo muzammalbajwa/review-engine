@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
@@ -10,11 +11,21 @@ use Illuminate\Notifications\Notification;
  * .claude/QUEUE.md: "Failed jobs go to failed_jobs table + alert." — same
  * shape as WorkerHeartbeatDown (same config('services.ops.alert_email'),
  * same "don't fail silently" reasoning), sent from SendReviewRequest's
- * failing() once retries are exhausted. Unlike the heartbeat alert this
- * is about one tenant's one contact, not a systemic outage, so it's
- * queued normally rather than forced synchronous.
+ * failed() once retries (or QA-audit Finding 5's new MAX_SKIP_RETRIES
+ * give-up) are exhausted. Unlike the heartbeat alert this is about one
+ * tenant's one contact, not a systemic outage, so it's queued normally
+ * rather than forced synchronous.
+ *
+ * QA-audit fix (Finding 5): this docblock already said "queued normally"
+ * before this class actually implemented ShouldQueue — without it, every
+ * "queued" send here was always synchronous, inline in whatever process
+ * called SendReviewRequest::failed() (the queue worker itself). Adjacent
+ * to, and surfaced while fixing, that same method's own failing()->
+ * failed() rename below it in SendReviewRequest.php — this notification
+ * is the other half of the exact "fail loud" pipeline that rename was
+ * needed to make run at all.
  */
-class ReviewRequestSendFailed extends Notification
+class ReviewRequestSendFailed extends Notification implements ShouldQueue
 {
     use Queueable;
 

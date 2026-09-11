@@ -16,6 +16,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -264,8 +265,17 @@ class AuthController extends Controller
             // guard above, not unconditionally, so a repeat visit to an
             // already-used link (or any other call into this method
             // after the first) can never send it twice.
+            //
+            // QA-audit fix (Finding 1, CRITICAL): ad-hoc mail route, never
+            // $user->notify(...) — see App\Notifications\
+            // VerifyEmailAddress's docblock for the full root cause
+            // (a real queue worker has no RLS tenant context, so
+            // Laravel's automatic re-fetch of $user by id to serve as
+            // $notifiable silently failed and this email was never sent).
+            // WelcomeEmail::toMail() never reads $notifiable, so no
+            // further change is needed there.
             if ($tenant !== null) {
-                $user->notify(new WelcomeEmail(
+                Notification::route('mail', $user->email)->notify(new WelcomeEmail(
                     tenantName: $tenant->name,
                     onboardingCompleted: $tenant->onboarding_completed_at !== null,
                 ));

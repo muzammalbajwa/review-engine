@@ -31,7 +31,13 @@ class SubscriptionRenewalReminder extends Notification implements ShouldQueue
         private readonly Carbon $periodEnd,
         private readonly ?string $billingInterval,
         private readonly ?string $amountDisplay,
-    ) {}
+    ) {
+        // QA-audit fix (Finding 5): dedicated 'transactional' queue,
+        // drained before 'default' — see VerifyEmailAddress's own
+        // constructor for the full rationale, shared by every
+        // notification in this bucket.
+        $this->onQueue('transactional');
+    }
 
     public function via(object $notifiable): array
     {

@@ -70,9 +70,15 @@ test('a connection transitioning to revoked sends exactly one alert email to the
     expect($connection->status)->toBe('revoked');
     expect($connection->revoked_alert_sent_at)->not->toBeNull();
 
-    Notification::assertSentTo(
-        User::withoutGlobalScopes()->where('email', $email)->first(),
-        GbpConnectionRevoked::class
+    // QA-audit fix (Finding 1): dispatched via Notification::route('mail',
+    // ...) now, never $owner->notify(...) — see
+    // App\Services\Gbp\GbpTokenRefresher's own docblock at the call site,
+    // and App\Notifications\VerifyEmailAddress's for the full root cause.
+    // assertSentOnDemand (not assertSentTo($owner, ...)) is the correct
+    // assertion for an ad-hoc-routed notification.
+    Notification::assertSentOnDemand(
+        GbpConnectionRevoked::class,
+        fn ($notification, $channels, $notifiable) => $notifiable->routes['mail'] === $email
     );
 });
 
@@ -149,8 +155,14 @@ test('reconnecting resets the alert marker so a future revocation alerts again',
             ->toThrow(GbpConnectionRevokedException::class);
     });
 
-    Notification::assertSentTo(
-        User::withoutGlobalScopes()->where('email', $email)->first(),
-        GbpConnectionRevoked::class
+    // QA-audit fix (Finding 1): dispatched via Notification::route('mail',
+    // ...) now, never $owner->notify(...) — see
+    // App\Services\Gbp\GbpTokenRefresher's own docblock at the call site,
+    // and App\Notifications\VerifyEmailAddress's for the full root cause.
+    // assertSentOnDemand (not assertSentTo($owner, ...)) is the correct
+    // assertion for an ad-hoc-routed notification.
+    Notification::assertSentOnDemand(
+        GbpConnectionRevoked::class,
+        fn ($notification, $channels, $notifiable) => $notifiable->routes['mail'] === $email
     );
 });

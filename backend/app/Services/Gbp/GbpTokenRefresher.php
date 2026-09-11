@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Notifications\GbpConnectionRevoked;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Notification;
 
 /**
  * GBP access tokens are short-lived (~1 hour); the refresh_token is what
@@ -87,10 +88,21 @@ class GbpTokenRefresher
             return;
         }
 
+        // QA-audit fix (Finding 1, CRITICAL): ad-hoc mail route, never
+        // $owner->notify(...) — this runs from a queued job
+        // (SyncReviewsForConnection), so $owner->notify(...) would hand
+        // Laravel's queued-notification handling a real Eloquent User to
+        // rehydrate on whatever worker eventually processes THIS
+        // notification's own job too. With no RLS tenant context set on
+        // that worker, the re-fetch returns zero rows and Laravel
+        // silently discards the job as if it had succeeded — see
+        // App\Notifications\VerifyEmailAddress's docblock for the full
+        // mechanism. GbpConnectionRevoked::toMail() never reads
+        // $notifiable, so no further change is needed there.
         User::query()
             ->where('tenant_id', $connection->tenant_id)
             ->where('role', 'owner')
             ->get()
-            ->each(fn (User $owner) => $owner->notify(new GbpConnectionRevoked));
+            ->each(fn (User $owner) => Notification::route('mail', $owner->email)->notify(new GbpConnectionRevoked));
     }
 }

@@ -196,10 +196,33 @@ return [
     |
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | Queue priority — transactional before default
+    |--------------------------------------------------------------------------
+    |
+    | QA-audit fix (Finding 5): 'transactional' listed before 'default' —
+    | order matters here the same way it does for `queue:work
+    | --queue=transactional,default` (composer.json's own dev script uses
+    | that exact flag): a worker always checks the first queue for a job
+    | before moving on to the next, so 'transactional' fully drains before
+    | 'default' is touched at all. Every account-critical notification
+    | (VerifyEmailAddress, WelcomeEmail, GbpConnectionRevoked,
+    | SubscriptionRenewalReminder, TeamInviteReceived,
+    | VerifySenderIdentity — see each one's own constructor) declares
+    | ->onQueue('transactional'); everything else, including
+    | App\Jobs\SendReviewRequest's bulk drip sends/retries, stays on
+    | 'default'. Without this, a backlog of low-value drip retries
+    | (unbounded before this same fix — see SendReviewRequest's own
+    | MAX_SKIP_RETRIES) could delay a tenant's own account email behind
+    | every other tenant's backlog, on the one shared worker pool.
+    |
+    */
+
     'defaults' => [
         'supervisor-1' => [
             'connection' => 'redis',
-            'queue' => ['default'],
+            'queue' => ['transactional', 'default'],
             'balance' => 'auto',
             'autoScalingStrategy' => 'time',
             'maxProcesses' => 1,

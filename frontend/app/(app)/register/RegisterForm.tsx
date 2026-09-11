@@ -10,22 +10,40 @@ import { register, type RegisterState } from "./actions";
 // const object export breaks that (confirmed live: it took down the whole
 // /register page with "A 'use server' file can only export async
 // functions, found object").
-const initialState: RegisterState = { error: null, fields: null };
+const initialState: RegisterState = { error: null, fields: null, values: null };
 
 export function RegisterForm() {
   const [state, formAction, pending] = useActionState(register, initialState);
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
-      <Field label="Your name" name="name" type="text" autoComplete="name" errors={state.fields?.name} />
+      <Field
+        label="Your name"
+        name="name"
+        type="text"
+        autoComplete="name"
+        errors={state.fields?.name}
+        defaultValue={state.values?.name}
+      />
       <Field
         label="Business name"
         name="business_name"
         type="text"
         autoComplete="organization"
         errors={state.fields?.business_name}
+        defaultValue={state.values?.business_name}
       />
-      <Field label="Email" name="email" type="email" autoComplete="email" errors={state.fields?.email} />
+      <Field
+        label="Email"
+        name="email"
+        type="email"
+        autoComplete="email"
+        errors={state.fields?.email}
+        defaultValue={state.values?.email}
+      />
+      {/* Password fields never get a defaultValue, even on error — see
+          RegisterState's own docblock (actions.ts): never echo a password
+          back. */}
       <Field
         label="Password"
         name="password"
@@ -59,12 +77,14 @@ function Field({
   type,
   autoComplete,
   errors,
+  defaultValue,
 }: {
   label: string;
   name: string;
   type: string;
   autoComplete: string;
   errors?: string[];
+  defaultValue?: string;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -77,6 +97,7 @@ function Field({
         type={type}
         required
         autoComplete={autoComplete}
+        defaultValue={defaultValue}
         aria-invalid={errors ? true : undefined}
         className="h-9 rounded-lg border border-border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
       />

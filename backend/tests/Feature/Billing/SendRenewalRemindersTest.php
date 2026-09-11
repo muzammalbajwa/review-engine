@@ -85,16 +85,27 @@ test('an auto-renewing subscription exactly 10 days from renews_at gets the cour
 
     $owner = User::withoutGlobalScopes()->where('email', $email)->first();
 
-    Notification::assertSentToTimes($owner, SubscriptionRenewalReminder::class, 1);
-    Notification::assertSentTo($owner, function (SubscriptionRenewalReminder $notification) use ($owner) {
-        $mail = $notification->toMail($owner);
+    // QA-audit fix (Finding 1): dispatched via Notification::route('mail',
+    // ...) now, never $owner->notify(...) — see
+    // App\Console\Commands\SendRenewalReminders's own docblock at the
+    // call site, and App\Notifications\VerifyEmailAddress's for the full
+    // root cause. assertSentOnDemand (not assertSentTo($owner, ...)) is
+    // the correct assertion for an ad-hoc-routed notification.
+    Notification::assertSentOnDemandTimes(SubscriptionRenewalReminder::class, 1);
+    Notification::assertSentOnDemand(
+        SubscriptionRenewalReminder::class,
+        function ($notification, $channels, $notifiable) use ($owner) {
+            expect($notifiable->routes['mail'])->toBe($owner->email);
 
-        expect($mail->subject)->toContain('renews in 10 days');
-        expect(implode(' ', $mail->introLines))->toContain('Your card will be charged $20')
-            ->toContain('for your monthly plan');
+            $mail = $notification->toMail($owner);
 
-        return true;
-    });
+            expect($mail->subject)->toContain('renews in 10 days');
+            expect(implode(' ', $mail->introLines))->toContain('Your card will be charged $20')
+                ->toContain('for your monthly plan');
+
+            return true;
+        }
+    );
 
     $fresh = subscriptionFresh($tenantId, $subscription->id);
     expect($fresh->renewal_reminder_10d_sent_for)->not->toBeNull();
@@ -115,17 +126,23 @@ test('a cancel-at-period-end subscription exactly 5 days from ends_at gets the a
 
     $owner = User::withoutGlobalScopes()->where('email', $email)->first();
 
-    Notification::assertSentToTimes($owner, SubscriptionRenewalReminder::class, 1);
-    Notification::assertSentTo($owner, function (SubscriptionRenewalReminder $notification) use ($owner) {
-        $mail = $notification->toMail($owner);
+    // QA-audit fix (Finding 1): see the previous test's own comment.
+    Notification::assertSentOnDemandTimes(SubscriptionRenewalReminder::class, 1);
+    Notification::assertSentOnDemand(
+        SubscriptionRenewalReminder::class,
+        function ($notification, $channels, $notifiable) use ($owner) {
+            expect($notifiable->routes['mail'])->toBe($owner->email);
 
-        expect($mail->subject)->toContain('ends in 5 days');
-        expect(implode(' ', $mail->introLines))
-            ->toContain('Your subscription ends on')
-            ->toContain('renew now to keep sending review requests');
+            $mail = $notification->toMail($owner);
 
-        return true;
-    });
+            expect($mail->subject)->toContain('ends in 5 days');
+            expect(implode(' ', $mail->introLines))
+                ->toContain('Your subscription ends on')
+                ->toContain('renew now to keep sending review requests');
+
+            return true;
+        }
+    );
 
     $fresh = subscriptionFresh($tenantId, $subscription->id);
     expect($fresh->renewal_reminder_5d_sent_for)->not->toBeNull();
@@ -157,8 +174,7 @@ test('re-running the command the same day does not duplicate an already-sent rem
     $this->artisan('billing:send-renewal-reminders')->assertSuccessful();
     $this->artisan('billing:send-renewal-reminders')->assertSuccessful();
 
-    $owner = User::withoutGlobalScopes()->where('email', $email)->first();
-    Notification::assertSentToTimes($owner, SubscriptionRenewalReminder::class, 1);
+    Notification::assertSentOnDemandTimes(SubscriptionRenewalReminder::class, 1);
 });
 
 test('a subscription that already got its 10-day reminder still gets the 5-day one once that day arrives', function () {
@@ -169,8 +185,7 @@ test('a subscription that already got its 10-day reminder still gets the 5-day o
     Notification::fake();
     $this->artisan('billing:send-renewal-reminders')->assertSuccessful();
 
-    $owner = User::withoutGlobalScopes()->where('email', $email)->first();
-    Notification::assertSentToTimes($owner, SubscriptionRenewalReminder::class, 1);
+    Notification::assertSentOnDemandTimes(SubscriptionRenewalReminder::class, 1);
 
     // 5 days pass — same subscription, same renews_at, now exactly 5 days
     // out instead of 10.
@@ -179,7 +194,7 @@ test('a subscription that already got its 10-day reminder still gets the 5-day o
     Notification::fake();
     $this->artisan('billing:send-renewal-reminders')->assertSuccessful();
 
-    Notification::assertSentToTimes($owner, SubscriptionRenewalReminder::class, 1);
+    Notification::assertSentOnDemandTimes(SubscriptionRenewalReminder::class, 1);
 
     $fresh = subscriptionFresh($tenantId, $subscription->id);
     expect($fresh->renewal_reminder_10d_sent_for)->not->toBeNull();

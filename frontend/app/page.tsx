@@ -430,12 +430,12 @@ function Footer() {
             </Link>
           </div>
 
-          <div className="flex flex-col gap-3">
+          <div className="flex min-w-0 flex-col gap-3">
             <p className={FOOTER_HEADING_CLASS}>Contact</p>
             <Link href="/contact" className={FOOTER_LINK_CLASS}>
               Contact us
             </Link>
-            <a href="mailto:support@reviewengine24.com" className={FOOTER_LINK_CLASS}>
+            <a href="mailto:support@reviewengine24.com" className={`${FOOTER_LINK_CLASS} break-all`}>
               support@reviewengine24.com
             </a>
           </div>

@@ -19,7 +19,14 @@ class VerifySenderIdentity extends Notification implements ShouldQueue
 {
     use Queueable;
 
-    public function __construct(private readonly string $verifyUrl) {}
+    public function __construct(private readonly string $verifyUrl)
+    {
+        // QA-audit fix (Finding 5): dedicated 'transactional' queue,
+        // drained before 'default' — see VerifyEmailAddress's own
+        // constructor for the full rationale, shared by every
+        // notification in this bucket.
+        $this->onQueue('transactional');
+    }
 
     public function via(object $notifiable): array
     {

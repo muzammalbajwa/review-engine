@@ -11,6 +11,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Notification;
 
 /**
  * .claude/BILLING.md "Renewal reminders": at 10 and 5 days before a real
@@ -189,10 +190,21 @@ class SendRenewalReminders extends Command
             amountDisplay: $priceCents !== null ? '$'.number_format($priceCents / 100, 0) : null,
         );
 
+        // QA-audit fix (Finding 1, CRITICAL): ad-hoc mail route, never
+        // $owner->notify(...) — this command runs on the scheduler
+        // (routes/console.php), a real out-of-process context with no RLS
+        // tenant context of its own. $owner->notify(...) would hand
+        // Laravel's queued-notification handling a real Eloquent User to
+        // rehydrate on whatever worker later processes the job; that
+        // re-fetch returns zero rows and Laravel silently discards the
+        // job as if it had succeeded — see App\Notifications\
+        // VerifyEmailAddress's docblock for the full mechanism.
+        // SubscriptionRenewalReminder::toMail() never reads $notifiable,
+        // so no further change is needed there.
         User::query()
             ->where('tenant_id', $tenant->id)
             ->where('role', 'owner')
             ->get()
-            ->each(fn (User $owner) => $owner->notify($notification));
+            ->each(fn (User $owner) => Notification::route('mail', $owner->email)->notify($notification));
     }
 }

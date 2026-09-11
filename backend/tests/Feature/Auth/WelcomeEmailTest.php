@@ -5,6 +5,7 @@ use App\Models\User;
 use App\Notifications\VerifyEmailAddress;
 use App\Notifications\WelcomeEmail;
 use Illuminate\Mail\Markdown;
+use Illuminate\Notifications\AnonymousNotifiable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 
@@ -46,8 +47,16 @@ test('registering does NOT send the welcome email — only verification does', f
 
     $owner = ownerFor($response->json('data.user.id'), $response->json('data.tenant.id'));
 
-    Notification::assertSentTo($owner, VerifyEmailAddress::class);
-    Notification::assertNotSentTo($owner, WelcomeEmail::class);
+    // QA-audit fix (Finding 1): both notifications are dispatched via
+    // Notification::route('mail', ...) now, never $user->notify(...) —
+    // see App\Notifications\VerifyEmailAddress's own docblock for why.
+    // assertSentOnDemand/assertNotSentTo(new AnonymousNotifiable, ...)
+    // are the correct assertions for an ad-hoc-routed notification.
+    Notification::assertSentOnDemand(
+        VerifyEmailAddress::class,
+        fn ($notification, $channels, $notifiable) => $notifiable->routes['mail'] === $owner->email
+    );
+    Notification::assertNotSentTo(new AnonymousNotifiable, WelcomeEmail::class);
 });
 
 test('verifying an account with onboarding NOT yet completed sends a welcome email pointing to /onboarding', function () {
@@ -58,17 +67,24 @@ test('verifying an account with onboarding NOT yet completed sends a welcome ema
     $this->getJson(verifyUrlFor($userId, $owner->email))->assertRedirect();
 
     $owner = ownerFor($userId, $tenantId);
-    Notification::assertSentToTimes($owner, WelcomeEmail::class, 1);
-    Notification::assertSentTo($owner, function (WelcomeEmail $notification) use ($owner) {
-        $mail = $notification->toMail($owner);
+    // QA-audit fix (Finding 1): ad-hoc-routed now — see the earlier test
+    // in this file for why assertSentOnDemand replaces assertSentTo.
+    Notification::assertSentOnDemandTimes(WelcomeEmail::class, 1);
+    Notification::assertSentOnDemand(
+        WelcomeEmail::class,
+        function ($notification, $channels, $notifiable) use ($owner) {
+            expect($notifiable->routes['mail'])->toBe($owner->email);
 
-        expect($mail->subject)->toContain("You're verified");
-        expect(implode(' ', $mail->introLines))->toContain('is ready to start collecting reviews');
-        expect($mail->actionText)->toBe('Finish setup');
-        expect($mail->actionUrl)->toContain('/onboarding');
+            $mail = $notification->toMail($owner);
 
-        return true;
-    });
+            expect($mail->subject)->toContain("You're verified");
+            expect(implode(' ', $mail->introLines))->toContain('is ready to start collecting reviews');
+            expect($mail->actionText)->toBe('Finish setup');
+            expect($mail->actionUrl)->toContain('/onboarding');
+
+            return true;
+        }
+    );
 });
 
 test('verifying an account with onboarding already completed sends a welcome email pointing to /dashboard, not /onboarding', function () {
@@ -80,15 +96,22 @@ test('verifying an account with onboarding already completed sends a welcome ema
     $this->getJson(verifyUrlFor($userId, $owner->email))->assertRedirect();
 
     $owner = ownerFor($userId, $tenantId);
-    Notification::assertSentToTimes($owner, WelcomeEmail::class, 1);
-    Notification::assertSentTo($owner, function (WelcomeEmail $notification) use ($owner) {
-        $mail = $notification->toMail($owner);
+    // QA-audit fix (Finding 1): ad-hoc-routed now — see the first test in
+    // this file for why assertSentOnDemand replaces assertSentTo.
+    Notification::assertSentOnDemandTimes(WelcomeEmail::class, 1);
+    Notification::assertSentOnDemand(
+        WelcomeEmail::class,
+        function ($notification, $channels, $notifiable) use ($owner) {
+            expect($notifiable->routes['mail'])->toBe($owner->email);
 
-        expect($mail->actionText)->toBe('Go to dashboard');
-        expect($mail->actionUrl)->toContain('/dashboard');
+            $mail = $notification->toMail($owner);
 
-        return true;
-    });
+            expect($mail->actionText)->toBe('Go to dashboard');
+            expect($mail->actionUrl)->toContain('/dashboard');
+
+            return true;
+        }
+    );
 });
 
 test('re-visiting an already-used verification link never sends a second welcome email', function () {
@@ -112,7 +135,10 @@ test('the welcome email — and every other MailMessage notification — renders
     $owner->id = 1;
 
     $welcome = new WelcomeEmail(tenantName: 'Theme Check Co', onboardingCompleted: false);
-    $verify = new VerifyEmailAddress;
+    // QA-audit fix (Finding 1): VerifyEmailAddress now takes the user id +
+    // email as plain scalars (never rehydrates $notifiable) — see its own
+    // docblock. $owner here is just a local, unsaved stub either way.
+    $verify = new VerifyEmailAddress($owner->id, $owner->email);
 
     foreach ([$welcome, $verify] as $notification) {
         $mail = $notification->toMail($owner);

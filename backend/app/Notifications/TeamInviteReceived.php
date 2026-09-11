@@ -20,7 +20,13 @@ class TeamInviteReceived extends Notification implements ShouldQueue
         private readonly string $tenantName,
         private readonly string $inviterName,
         private readonly string $acceptUrl,
-    ) {}
+    ) {
+        // QA-audit fix (Finding 5): dedicated 'transactional' queue,
+        // drained before 'default' — see VerifyEmailAddress's own
+        // constructor for the full rationale, shared by every
+        // notification in this bucket.
+        $this->onQueue('transactional');
+    }
 
     public function via(object $notifiable): array
     {

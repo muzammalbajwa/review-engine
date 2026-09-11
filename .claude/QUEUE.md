@@ -26,6 +26,35 @@ second language/service. Laravel Queues + Horizon do everything we need.
 - withoutOverlapping locks on the drip command so two workers don't
   double-release.
 - Failed jobs go to failed_jobs table + alert.
+- A self-requeuing skip (waiting on a prerequisite — no verified sender,
+  no connected GBP, no compliance-passed template, no email channel at
+  all) has a finite cap (SendReviewRequest::MAX_SKIP_RETRIES, 168 tries
+  at the 60-minute retry interval — roughly a week), not an infinite
+  loop. Once exceeded, the job calls $this->fail() with a real reason —
+  it lands in failed_jobs and fires the same "fail loud, not silent"
+  alert (App\Notifications\ReviewRequestSendFailed) a genuine exception
+  would.
+
+## Queue priority — transactional before default
+Two named queues on the same Redis connection, not one:
+- `transactional` — every account-critical notification: email
+  verification, welcome, team invites, sender-identity verification, GBP
+  disconnect alerts, subscription renewal reminders. Each of these sets
+  `->onQueue('transactional')` in its own constructor (see
+  App\Notifications\VerifyEmailAddress for the full rationale).
+- `default` — everything else, including SendReviewRequest's bulk sends
+  and its own self-requeuing retries.
+
+Workers run `--queue=transactional,default` (composer.json's `dev`
+script; config/horizon.php's default supervisor lists the same two
+queues in the same order) — a worker always checks the first queue
+listed for a job before moving to the next, so `transactional` fully
+drains before `default` is touched. Without this, a backlog of
+low-value drip retries for one tenant's badly-set-up contacts could
+delay a completely different tenant's account email on the one shared
+worker pool — a real, observed risk before both this and the retry cap
+above were added (a QA audit found a verification-email job sitting
+behind dozens of drip-retry jobs in the live Redis queue).
 
 ## Monitoring
 - Horizon dashboard for queue health.

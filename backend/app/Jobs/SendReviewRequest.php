@@ -61,9 +61,28 @@ class SendReviewRequest implements ShouldQueue
      */
     private const RETRY_SKIP_DELAY_MINUTES = 60;
 
+    /**
+     * QA-audit fix (Finding 5): a self-requeue via $skipRetryCount below
+     * used to have no ceiling at all — a contact stuck on
+     * 'contact_has_no_email' (structurally permanent: nothing about this
+     * job, or the passage of time alone, ever gives a phone-only contact
+     * an email address — SMS is Phase 4, not built) would re-dispatch
+     * itself once an hour, forever, silently, consuming one queue slot
+     * per contact for the life of the tenant. 168 retries at the 60-minute
+     * interval above is exactly one week — generous enough that a tenant
+     * mid-onboarding (still connecting GBP, verifying a sender, writing a
+     * compliant template) is never cut off mid-setup, but finite, so a
+     * contact that can genuinely never resolve eventually says so instead
+     * of running forever. Once exceeded, $this->fail() below — never a
+     * silent drop — matching QUEUE.md's "failed jobs go to failed_jobs
+     * table + alert" standard the same way a real thrown exception would.
+     */
+    public const MAX_SKIP_RETRIES = 168;
+
     public function __construct(
         public readonly int $contactId,
         public readonly int $step = 1,
+        public readonly int $skipRetryCount = 0,
     ) {}
 
     public function middleware(): array
@@ -103,10 +122,21 @@ class SendReviewRequest implements ShouldQueue
                 'contact_id' => $this->contactId,
                 'step' => $this->step,
                 'reason' => $plan['reason'],
+                'skip_retry_count' => $this->skipRetryCount,
             ]);
 
             if ($plan['retry']) {
-                self::dispatch($this->contactId, $this->step)->delay(now()->addMinutes(self::RETRY_SKIP_DELAY_MINUTES));
+                if ($this->skipRetryCount >= self::MAX_SKIP_RETRIES) {
+                    $this->fail(
+                        "SendReviewRequest gave up on contact {$this->contactId} step {$this->step} after ".
+                        self::MAX_SKIP_RETRIES." retries over roughly a week — still blocked on: {$plan['reason']}"
+                    );
+
+                    return;
+                }
+
+                self::dispatch($this->contactId, $this->step, $this->skipRetryCount + 1)
+                    ->delay(now()->addMinutes(self::RETRY_SKIP_DELAY_MINUTES));
             }
 
             return;
@@ -308,8 +338,22 @@ class SendReviewRequest implements ShouldQueue
      * exhausted; this only owns the "+ alert" half, throttled per-tenant
      * so an outage affecting many contacts at once (e.g. Mailpit/Resend
      * down) sends one email, not one per contact.
+     *
+     * QA-audit fix (Finding 5): this was named failing() before — a
+     * plausible-looking but nonexistent Laravel hook. The real one
+     * Illuminate\Queue\CallQueuedHandler actually calls (verified
+     * directly: it does `method_exists($command, 'failed')`) is
+     * failed(Throwable $e), no -ing. Renaming here is what makes this
+     * method run at all — for a genuine exhausted-retries failure AND for
+     * the new MAX_SKIP_RETRIES give-up path above, both of which call
+     * $this->fail(), which in turn calls this. Confirmed live: the ops
+     * alert email never fired before this rename, for either failure
+     * path, with nothing anywhere to say why — the exact "confident
+     * success, no real work happening" failure class .claude/QUEUE.md's
+     * "failed jobs go to failed_jobs table + alert" line exists to rule
+     * out.
      */
-    public function failing(Throwable $e): void
+    public function failed(Throwable $e): void
     {
         $tenantId = DB::transaction(function () {
             DB::statement("SELECT set_config('app.is_admin', 'true', true)");

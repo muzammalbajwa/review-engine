@@ -57,7 +57,16 @@ test('registering sends a real, queued verification email to the new owner and r
         return User::query()->find($userId);
     });
 
-    Notification::assertSentTo($owner, VerifyEmailAddress::class);
+    // QA-audit fix (Finding 1): dispatched via Notification::route('mail',
+    // ...) now, never $user->notify(...) — see App\Notifications\
+    // VerifyEmailAddress's own docblock for why. assertSentOnDemand (not
+    // assertSentTo($owner, ...)) is the correct assertion for an
+    // ad-hoc-routed notification; the callback confirms it was routed to
+    // this exact owner's email, not just "some" VerifyEmailAddress.
+    Notification::assertSentOnDemand(
+        VerifyEmailAddress::class,
+        fn ($notification, $channels, $notifiable) => $notifiable->routes['mail'] === $owner->email
+    );
     expect(isVerifiedInDb($userId, $tenantId))->toBeFalse();
 });
 
@@ -236,7 +245,15 @@ test('resending the verification email while unverified sends another real notif
         return User::query()->find($userId);
     });
 
-    Notification::assertSentToTimes($owner, VerifyEmailAddress::class, 1);
+    // QA-audit fix (Finding 1): ad-hoc-routed now — see the assertion
+    // above's own comment. Only this one account is touched in this
+    // test, so counting all on-demand sends of this class is equivalent
+    // to the original assertSentToTimes($owner, ...) intent.
+    Notification::assertSentOnDemandTimes(VerifyEmailAddress::class, 1);
+    Notification::assertSentOnDemand(
+        VerifyEmailAddress::class,
+        fn ($notification, $channels, $notifiable) => $notifiable->routes['mail'] === $owner->email
+    );
 });
 
 test('resending once already verified is a harmless no-op — no second email', function () {

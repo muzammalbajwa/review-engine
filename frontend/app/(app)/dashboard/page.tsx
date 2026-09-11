@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { apiFetch, type ApiResult } from "@/lib/api";
-import { requireToken } from "@/lib/session";
+import { getIsAdmin, requireToken } from "@/lib/session";
 import { getOnboardingStatus } from "../onboarding/actions";
 import type { Paginated, Review } from "../reviews/actions";
 
@@ -26,9 +26,26 @@ type ContactsPage = { total: number };
  * real landing screen post-login — gates on onboarding completion first,
  * since an account that never finished the guided flow shouldn't land
  * here without being sent back to it.
+ *
+ * QA-audit fix (Finding 4): admin-type accounts are checked and sent
+ * straight to /admin BEFORE that onboarding-completion gate runs. An
+ * admin tenant never has a plan/trial to complete — DemoAccountsSeeder
+ * (and, per PROJECT_STATUS.md, any real admin tenant, seeded directly,
+ * "no self-serve way to create one, by design") never calls
+ * Tenant::startTrial() or sets onboarding_completed_at for one — so
+ * status.completed was permanently false for every admin account,
+ * funneling every admin login into the customer-only trial/pricing
+ * wizard instead of the tenant list. getIsAdmin() reads the same
+ * re_is_admin cookie AppShell already trusts to decide whether to show
+ * the Admin nav link (set at login/register from the API's own
+ * user.is_admin) — no extra network round trip needed here.
  */
 export default async function DashboardPage() {
   await requireToken();
+
+  if (await getIsAdmin()) {
+    redirect("/admin");
+  }
 
   const status = await getOnboardingStatus();
 

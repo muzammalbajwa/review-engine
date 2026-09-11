@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Notification;
 use Laravel\Paddle\Billable;
 use Laravel\Sanctum\HasApiTokens;
 use Laravel\Sanctum\NewAccessToken;
@@ -192,9 +193,23 @@ class User extends Authenticatable implements MustVerifyEmailContract
      * (which hardcodes `notify(new \Illuminate\Auth\Notifications\VerifyEmail)`)
      * purely to send the queued subclass instead — see
      * App\Notifications\VerifyEmailAddress's own docblock.
+     *
+     * QA-audit fix (Finding 1, CRITICAL): dispatched via
+     * Notification::route('mail', ...)->notify(...), an ad-hoc route with
+     * no Eloquent model attached — never `$this->notify(...)` any more.
+     * See VerifyEmailAddress's own docblock for the full root cause: a
+     * real, separate queue worker has no RLS tenant context, so Laravel's
+     * automatic re-fetch of $this by id (to serve as $notifiable) on that
+     * worker silently failed and the email was never sent, with no error
+     * anywhere. $this->getKey()/$this->getEmailForVerification() are read
+     * right here, in-process, before the job ever crosses to a worker —
+     * exactly the two values VerifyEmailAddress needs to build the signed
+     * URL without touching $notifiable at all.
      */
     public function sendEmailVerificationNotification(): void
     {
-        $this->notify(new VerifyEmailAddress);
+        Notification::route('mail', $this->email)->notify(
+            new VerifyEmailAddress($this->getKey(), $this->getEmailForVerification())
+        );
     }
 }
