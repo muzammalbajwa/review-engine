@@ -74,7 +74,7 @@ class GbpController extends Controller
             Log::error('GBP connect attempted but Google OAuth credentials are not configured');
 
             return response()->json([
-                'error' => 'gbp_misconfigured',
+                'error' => 'gbp_not_configured',
                 'message' => 'Connecting Google Business Profile isn\'t available right now. Please try again later or contact support.',
                 'fields' => null,
             ], 503);
