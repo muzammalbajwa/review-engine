@@ -34,7 +34,11 @@ class ReviewRequestSendFailed extends Notification implements ShouldQueue
         public readonly int $contactId,
         public readonly int $step,
         public readonly string $reason,
-    ) {}
+    ) {
+        // Time-sensitive ops alert: it shouldn't wait behind the bulk
+        // SendReviewRequest backlog on 'default' (see .claude/QUEUE.md).
+        $this->onQueue('transactional');
+    }
 
     public function via(object $notifiable): array
     {

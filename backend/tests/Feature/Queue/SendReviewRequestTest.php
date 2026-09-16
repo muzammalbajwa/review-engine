@@ -320,7 +320,8 @@ test('QA-audit fix (Finding 5), real evidence: giving up at the cap lands a real
         ReviewRequestSendFailed::class,
         function ($notification, $channels, $notifiable) use ($contactId) {
             return $notifiable->routes['mail'] === 'ops@example.com'
-                && $notification->contactId === $contactId;
+                && $notification->contactId === $contactId
+                && $notification->queue === 'transactional';
         }
     );
 });
