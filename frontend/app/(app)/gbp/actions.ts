@@ -25,7 +25,11 @@ export async function startGbpConnect(): Promise<void> {
   const result = await apiFetch<{ redirect_url: string }>("/gbp/connect");
 
   if (!result.ok) {
-    redirect("/gbp/connect?error=connect_failed");
+    redirect(
+      result.error === "gbp_not_configured"
+        ? "/gbp/connect?error=gbp_not_configured"
+        : "/gbp/connect?error=connect_failed"
+    );
   }
 
   redirect(result.data.redirect_url);

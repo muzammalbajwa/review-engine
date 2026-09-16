@@ -160,6 +160,12 @@ export function SubscribeForm({ currentInterval }: { currentInterval: "monthly" 
           </p>
         )}
 
+        {!clientSideToken && (
+          <p role="status" className="text-sm text-muted-foreground">
+            Checkout is temporarily unavailable. Please try again later or contact support.
+          </p>
+        )}
+
         <Button type="submit" disabled={submitting || !clientSideToken}>
           {submitting ? "Loading checkout…" : "Continue to checkout"}
         </Button>

@@ -55,6 +55,23 @@ test('connect returns a Google OAuth URL with the business.manage scope and a st
     expect($url)->toMatch('/[?&]state=[^&]+/');
 });
 
+test('connect returns a friendly 503 instead of a Google URL when OAuth credentials are missing', function (string $key, ?string $value) {
+    [$token] = registerAndGetToken('Connect Unconfigured');
+    config([$key => $value]);
+
+    $response = $this->withHeader('Authorization', "Bearer {$token}")
+        ->getJson('/api/v1/gbp/connect');
+
+    $response->assertStatus(503)
+        ->assertJsonPath('error', 'gbp_not_configured')
+        ->assertJsonMissingPath('data.redirect_url');
+    expect($response->json('message'))->not->toBeEmpty();
+})->with([
+    'blank client id' => ['services.google.client_id', ''],
+    'null client secret' => ['services.google.client_secret', null],
+    'invalid redirect uri' => ['services.google.redirect', 'not-a-url'],
+]);
+
 test('callback with no state is rejected without creating a connection', function () {
     $response = $this->get('/api/v1/gbp/callback');
 

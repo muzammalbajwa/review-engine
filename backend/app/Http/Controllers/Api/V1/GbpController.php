@@ -68,6 +68,18 @@ class GbpController extends Controller
      */
     public function connect(Request $request): JsonResponse
     {
+        // Socialite happily builds a URL with a blank client_id; Google then
+        // shows the user its own raw error page instead of anything we control.
+        if (! $this->googleOAuthConfigured()) {
+            Log::error('GBP connect attempted but Google OAuth credentials are not configured');
+
+            return response()->json([
+                'error' => 'gbp_not_configured',
+                'message' => 'Connecting Google Business Profile isn\'t available right now. Please try again later or contact support.',
+                'fields' => null,
+            ], 503);
+        }
+
         $state = $this->oauthState->generate($request->user()->tenant_id);
 
         $redirectUrl = Socialite::driver('google')
@@ -86,6 +98,17 @@ class GbpController extends Controller
             ->getTargetUrl();
 
         return response()->json(['data' => ['redirect_url' => $redirectUrl]]);
+    }
+
+    private function googleOAuthConfigured(): bool
+    {
+        $clientId = trim((string) config('services.google.client_id'));
+        $clientSecret = trim((string) config('services.google.client_secret'));
+        $redirect = trim((string) config('services.google.redirect'));
+
+        return $clientId !== ''
+            && $clientSecret !== ''
+            && filter_var($redirect, FILTER_VALIDATE_URL) !== false;
     }
 
     /**

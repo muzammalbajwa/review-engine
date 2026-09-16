@@ -19,6 +19,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   no_location_found:
     "We couldn't find a Google Business Profile location on that account. Connect the Google account that manages your business listing.",
   connect_failed: "Something went wrong starting the connection. Please try again.",
+  gbp_not_configured:
+    "Connecting Google Business Profile isn't available right now. Please try again later or contact support.",
 };
 
 export default async function GbpConnectPage({
