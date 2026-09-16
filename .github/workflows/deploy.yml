@@ -1,12 +1,267 @@
-name: Deploy to VPS
+name: CI and Deploy
 
 on:
   push:
-    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
 
 jobs:
-  deploy-backend:
+  backend-tests:
+    name: Backend tests (Pest, Postgres + RLS)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: reviewengine_testing
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo_pgsql, pgsql, mbstring, bcmath, intl, zip
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache/files
+          key: composer-${{ hashFiles('backend/composer.lock') }}
+
+      - run: composer install --no-interaction --prefer-dist --no-progress
+
+      # Placeholder values only; nothing here is a real credential. The app
+      # connects as app_user (non-superuser, RLS enforced). The migration
+      # below runs as the postgres owner and creates app_user plus every
+      # RLS policy, exactly as local setup does.
+      - name: Write .env.testing
+        run: |
+          cat > .env.testing <<'ENV'
+          APP_NAME=ReviewEngine
+          APP_ENV=testing
+          APP_KEY=
+          APP_DEBUG=true
+          APP_URL=http://localhost
+          LOG_CHANNEL=stack
+          LOG_STACK=single
+          LOG_LEVEL=debug
+          DB_CONNECTION=pgsql
+          DB_HOST=127.0.0.1
+          DB_PORT=5432
+          DB_DATABASE=reviewengine_testing
+          DB_USERNAME=app_user
+          DB_PASSWORD=ci-app-user-password
+          DB_APP_USER_PASSWORD=ci-app-user-password
+          DB_OWNER_USERNAME=postgres
+          DB_OWNER_PASSWORD=postgres
+          SESSION_DRIVER=array
+          BROADCAST_CONNECTION=null
+          QUEUE_CONNECTION=sync
+          CACHE_STORE=array
+          REDIS_CLIENT=predis
+          REDIS_HOST=127.0.0.1
+          REDIS_PASSWORD=null
+          REDIS_PORT=6379
+          MAIL_MAILER=array
+          PADDLE_SANDBOX=true
+          PADDLE_SELLER_ID=12345
+          PADDLE_AUTH_CODE=paddle_ci_auth_code_placeholder
+          PADDLE_CLIENT_SIDE_TOKEN=test_ci_client_side_token_placeholder
+          PADDLE_WEBHOOK_SECRET=pdl_ntfset_ci_webhook_secret_placeholder
+          PADDLE_PRICE_MONTHLY=pri_monthly_test_placeholder
+          PADDLE_PRICE_ANNUAL=pri_annual_test_placeholder
+          ANTHROPIC_API_KEY=
+          GOOGLE_CLIENT_ID=test-client-id
+          GOOGLE_CLIENT_SECRET=test-client-secret
+          GOOGLE_REDIRECT_URI=http://127.0.0.1/api/v1/gbp/callback
+          FRONTEND_URL=https://localhost:3000
+          SANCTUM_STATEFUL_DOMAINS=localhost:3000
+          ENV
+          php artisan key:generate --env=testing --ansi
+
+      - name: Migrate test database (owner connection, creates app_user + RLS)
+        run: php artisan migrate --database=pgsql_owner --env=testing --force
+
+      - name: Confirm RLS is enforced for app_user
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -U postgres -d reviewengine_testing -v ON_ERROR_STOP=1 -tAc \
+            "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 'app_user'" | grep -qx 'f|f'
+          psql -h 127.0.0.1 -U postgres -d reviewengine_testing -v ON_ERROR_STOP=1 -tAc \
+            "SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE relname = 'users'" | grep -qx 't'
+
+      - name: Run Pest suite
+        run: php artisan test
+
+  frontend-e2e:
+    name: Frontend tests (Playwright against the real backend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: reviewengine
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      mailpit:
+        image: axllent/mailpit:latest
+        ports: ["1025:1025", "8025:8025"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo_pgsql, pgsql, mbstring, bcmath, intl, zip
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      # QUEUE_CONNECTION=sync sends account emails inline to Mailpit, where
+      # e2e/global-setup.ts reads the verification link. CACHE_STORE=array
+      # means `artisan serve` (a fresh PHP process per request) keeps no
+      # rate-limit counters, so the suite's handful of real /register calls
+      # can't trip the 5/min throttle. That throttle is covered by the Pest
+      # suite; this environment only exists to drive the UI.
+      - name: Write backend .env
+        working-directory: backend
+        run: |
+          cat > .env <<'ENV'
+          APP_NAME=ReviewEngine
+          APP_ENV=local
+          APP_KEY=
+          APP_DEBUG=true
+          APP_URL=http://127.0.0.1:8123
+          LOG_CHANNEL=stack
+          LOG_STACK=single
+          LOG_LEVEL=debug
+          DB_CONNECTION=pgsql
+          DB_HOST=127.0.0.1
+          DB_PORT=5432
+          DB_DATABASE=reviewengine
+          DB_USERNAME=app_user
+          DB_PASSWORD=ci-app-user-password
+          DB_APP_USER_PASSWORD=ci-app-user-password
+          DB_OWNER_USERNAME=postgres
+          DB_OWNER_PASSWORD=postgres
+          SESSION_DRIVER=array
+          BROADCAST_CONNECTION=null
+          QUEUE_CONNECTION=sync
+          CACHE_STORE=array
+          REDIS_CLIENT=predis
+          REDIS_HOST=127.0.0.1
+          REDIS_PASSWORD=null
+          REDIS_PORT=6379
+          MAIL_MAILER=smtp
+          MAIL_HOST=127.0.0.1
+          MAIL_PORT=1025
+          MAIL_FROM_ADDRESS=hello@example.com
+          PADDLE_SANDBOX=true
+          PADDLE_CLIENT_SIDE_TOKEN=
+          ANTHROPIC_API_KEY=
+          GOOGLE_CLIENT_ID=
+          GOOGLE_CLIENT_SECRET=
+          GOOGLE_REDIRECT_URI=http://127.0.0.1:8123/api/v1/gbp/callback
+          FRONTEND_URL=https://localhost:3000
+          SANCTUM_STATEFUL_DOMAINS=localhost:3000
+          ENV
+          php artisan key:generate --ansi
+          php artisan migrate --database=pgsql_owner --force
+
+      - name: Start backend
+        working-directory: backend
+        run: |
+          nohup php artisan serve --host=127.0.0.1 --port=8123 > "$RUNNER_TEMP/backend.log" 2>&1 &
+          for _ in $(seq 1 30); do curl -sf http://127.0.0.1:8123/api/v1/health && exit 0; sleep 1; done
+          cat "$RUNNER_TEMP/backend.log"; exit 1
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      # Self-signed cert via openssl so `next dev` never downloads or installs
+      # mkcert on the runner. The session cookie is Secure, so HTTPS is required.
+      - name: Start frontend (HTTPS dev server)
+        working-directory: frontend
+        run: |
+          echo "NEXT_PUBLIC_API_URL=http://127.0.0.1:8123" > .env.local
+          mkdir -p certificates
+          openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=localhost" \
+            -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
+            -keyout certificates/ci-key.pem -out certificates/ci-cert.pem
+          nohup npx next dev --experimental-https \
+            --experimental-https-key certificates/ci-key.pem \
+            --experimental-https-cert certificates/ci-cert.pem > "$RUNNER_TEMP/frontend.log" 2>&1 &
+          for _ in $(seq 1 90); do curl -skf https://localhost:3000/ -o /dev/null && exit 0; sleep 2; done
+          cat "$RUNNER_TEMP/frontend.log"; exit 1
+
+      - name: Run Playwright suite
+        working-directory: frontend
+        run: npx playwright test
+
+      - name: Upload Playwright report and server logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-debug
+          path: |
+            frontend/test-results/
+            ${{ runner.temp }}/backend.log
+            ${{ runner.temp }}/frontend.log
+          retention-days: 7
+
+  deploy-backend:
+    needs: [backend-tests, frontend-e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     steps:
       - name: Deploy backend
         uses: appleboy/ssh-action@v1.0.3
@@ -27,8 +282,12 @@ jobs:
             chown -R doorp2181:nobody /home/doorplaning.co.uk/reviewengine-monorepo/backend
 
   deploy-frontend:
-    runs-on: ubuntu-latest
     needs: deploy-backend
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-production-frontend
+      cancel-in-progress: false
     steps:
       - name: Deploy frontend
         uses: appleboy/ssh-action@v1.0.3
