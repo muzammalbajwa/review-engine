@@ -184,6 +184,22 @@ test('an unparseable compliance response surfaces as ai_unavailable, not a crash
     expect($response->json('error'))->toBe('ai_unavailable');
 });
 
+test('an unreachable compliance checker surfaces as ai_unavailable without leaking the connection error', function (string $method, string $uri) {
+    [$token] = registerAndGetTokenForTemplates('Unreachable '.$method);
+
+    Http::fake(['api.anthropic.com/*' => Http::failedConnection('cURL error 28: Connection timed out for https://api.anthropic.com/v1/messages')]);
+
+    $response = $this->withHeader('Authorization', "Bearer {$token}")
+        ->json($method, $uri, ['body' => 'Anything']);
+
+    $response->assertStatus(502);
+    expect($response->json('error'))->toBe('ai_unavailable');
+    expect($response->getContent())->not->toContain('cURL')->not->toContain('api.anthropic.com');
+})->with([
+    'live check' => ['POST', '/api/v1/templates/check'],
+    'save' => ['PUT', '/api/v1/templates/1'],
+]);
+
 test('a tenant only ever sees and saves its own templates', function () {
     [$tokenA, $tenantAId] = registerAndGetTokenForTemplates('Isolation A');
     [$tokenB, $tenantBId] = registerAndGetTokenForTemplates('Isolation B');

@@ -9,6 +9,7 @@ use App\Services\Gbp\GbpConnectionRevokedException;
 use App\Services\Gbp\GbpTokenRefresher;
 use App\Services\Gbp\GoogleReplyPolicyViolationException;
 use App\Services\Gbp\GoogleReviewReplyClient;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -76,7 +77,7 @@ class ReviewController extends Controller
 
         try {
             $body = $this->replyDrafter->draft($review);
-        } catch (RequestException $e) {
+        } catch (RequestException|ConnectionException $e) {
             Log::error('Claude reply drafting failed', ['review_id' => $review->id, 'error' => $e->getMessage()]);
 
             return response()->json([
@@ -106,7 +107,7 @@ class ReviewController extends Controller
                 'fields' => null,
                 'data' => ['reply' => $reply],
             ], 422);
-        } catch (RequestException $e) {
+        } catch (RequestException|ConnectionException $e) {
             Log::error('Posting reply to Google failed', ['review_id' => $review->id, 'error' => $e->getMessage()]);
 
             return response()->json([

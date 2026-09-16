@@ -10,6 +10,7 @@ use App\Models\Template;
 use App\Services\Ai\ComplianceChecker;
 use App\Services\Ai\ComplianceCheckUnparseableException;
 use App\Services\Templates\TemplateProvisioner;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -59,7 +60,7 @@ class TemplateController extends Controller
     {
         try {
             $result = $this->complianceChecker->check($request->validated('body'));
-        } catch (RequestException|ComplianceCheckUnparseableException $e) {
+        } catch (RequestException|ConnectionException|ComplianceCheckUnparseableException $e) {
             return $this->aiUnavailable($e);
         }
 
@@ -80,7 +81,7 @@ class TemplateController extends Controller
 
         try {
             $result = $this->complianceChecker->check($body);
-        } catch (RequestException|ComplianceCheckUnparseableException $e) {
+        } catch (RequestException|ConnectionException|ComplianceCheckUnparseableException $e) {
             return $this->aiUnavailable($e);
         }
 

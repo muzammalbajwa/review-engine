@@ -93,6 +93,29 @@ test('a drafted reply is posted to Google and the review no longer needs a reply
     expect($fresh->needs_reply)->toBeFalse();
 });
 
+test('an unreachable Claude or Google surfaces as a friendly 502 without leaking the connection error', function (string $unreachableHost, string $expectedError) {
+    [$token, $tenantId] = registerAndGetTokenForReply('Reply Unreachable '.$expectedError);
+    $connection = seedGbpConnectionForReply($tenantId);
+    $review = seedReviewForReply($tenantId, $connection->id);
+
+    Http::fake(array_merge([
+        'api.anthropic.com/*' => Http::response(['content' => [['type' => 'text', 'text' => 'Thank you for your feedback.']]], 200),
+        'mybusiness.googleapis.com/*' => Http::response([], 200),
+    ], [
+        $unreachableHost.'/*' => Http::failedConnection("cURL error 28: Connection timed out for https://{$unreachableHost}"),
+    ]));
+
+    $response = $this->withHeader('Authorization', "Bearer {$token}")
+        ->postJson("/api/v1/reviews/{$review->id}/reply");
+
+    $response->assertStatus(502);
+    expect($response->json('error'))->toBe($expectedError);
+    expect($response->getContent())->not->toContain('cURL')->not->toContain($unreachableHost);
+})->with([
+    'Claude unreachable' => ['api.anthropic.com', 'ai_unavailable'],
+    'Google unreachable' => ['mybusiness.googleapis.com', 'gbp_unavailable'],
+]);
+
 test('a policy-violating reply is surfaced with Google\'s reason, not hidden, and the review still needs a reply', function () {
     [$token, $tenantId] = registerAndGetTokenForReply('Reply Policy Violation');
     $connection = seedGbpConnectionForReply($tenantId);
