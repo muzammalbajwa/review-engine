@@ -16,6 +16,11 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // The removed Lemon Squeezy package created this table, so a fresh database never has it.
+        if (! Schema::hasTable('lemon_squeezy_customers')) {
+            return;
+        }
+
         Schema::table('lemon_squeezy_customers', function (Blueprint $table) {
             $table->foreignUuid('tenant_id')
                 ->after('id')

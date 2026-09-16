@@ -24,6 +24,11 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // The removed Lemon Squeezy package created this table, so a fresh database never has it.
+        if (! Schema::hasTable('lemon_squeezy_subscriptions')) {
+            return;
+        }
+
         Schema::table('lemon_squeezy_subscriptions', function (Blueprint $table) {
             $table->date('renewal_reminder_10d_sent_for')->nullable()->after('ends_at');
             $table->date('renewal_reminder_5d_sent_for')->nullable()->after('renewal_reminder_10d_sent_for');

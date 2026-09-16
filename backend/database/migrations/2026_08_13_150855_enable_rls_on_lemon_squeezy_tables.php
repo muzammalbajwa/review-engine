@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Same policy shape as 2026_07_17_145636_enable_row_level_security.php's
@@ -33,6 +34,11 @@ return new class extends Migration
     public function up(): void
     {
         foreach (self::TABLES as $table) {
+            // The removed Lemon Squeezy package created these tables, so a fresh database never has them.
+            if (! Schema::hasTable($table)) {
+                continue;
+            }
+
             DB::statement("ALTER TABLE {$table} ENABLE ROW LEVEL SECURITY");
             DB::statement("ALTER TABLE {$table} FORCE ROW LEVEL SECURITY");
 
