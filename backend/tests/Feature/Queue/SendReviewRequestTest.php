@@ -263,6 +263,7 @@ test('the skip-retry count survives a closed-hours re-delay, so the cap is still
 });
 
 test('QA-audit fix (Finding 5), real evidence: giving up at the cap lands a real row in failed_jobs and fires the real ops alert email — through a genuine queue round-trip, not a direct handle() call', function () {
+    resetTestRedisQueues();
     config(['queue.default' => 'redis']);
     config(['services.ops.alert_email' => 'ops@example.com']);
 

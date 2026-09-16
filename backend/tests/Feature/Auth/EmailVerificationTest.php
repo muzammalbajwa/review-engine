@@ -17,14 +17,6 @@ use Illuminate\Support\Facades\URL;
  * SenderIdentityVerificationTest.php already proves for sender identities,
  * reused here for User's own verification.verify route.
  */
-function verifyUrlFor(int $userId, string $email): string
-{
-    return URL::temporarySignedRoute('verification.verify', now()->addMinutes(60), [
-        'id' => $userId,
-        'hash' => sha1($email),
-    ]);
-}
-
 function isVerifiedInDb(int $userId, string $tenantId): bool
 {
     return DB::transaction(function () use ($userId, $tenantId) {

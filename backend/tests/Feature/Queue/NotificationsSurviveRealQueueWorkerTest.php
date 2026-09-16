@@ -124,6 +124,7 @@ function assertRealMailSentTo(string $toEmail, string $subjectContains): void
 }
 
 beforeEach(function () {
+    resetTestRedisQueues();
     config(['queue.default' => 'redis']);
     config(['mail.default' => 'array']);
     app('mail.manager')->mailer('array')->getSymfonyTransport()->flush();

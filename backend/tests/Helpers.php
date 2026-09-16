@@ -6,13 +6,17 @@ use App\Models\Contact;
 use App\Models\GbpConnection;
 use App\Models\Message;
 use App\Models\SenderIdentity;
+use App\Models\Subscription;
 use App\Models\Template;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
 use Laravel\Horizon\Contracts\MasterSupervisorRepository;
 use Laravel\Sanctum\PersonalAccessToken;
 
@@ -336,7 +340,7 @@ function paddleSignatureHeader(string $payload, string $secret, ?int $timestamp 
  * applied unconditionally in routes/api.php) is exercised for real on
  * every one of them, not just the dedicated signature tests.
  */
-function postSignedPaddleWebhook(array $payload, ?string $secret = null): \Illuminate\Testing\TestResponse
+function postSignedPaddleWebhook(array $payload, ?string $secret = null): TestResponse
 {
     $secret ??= config('cashier.webhook_secret');
     $body = json_encode($payload);
@@ -572,5 +576,78 @@ function tenantDataSnapshot(string $tenantId): array
             'templates' => Template::withoutGlobalScopes()->where('tenant_id', $tenantId)->orderBy('id')->get()->toArray(),
             'messages' => Message::withoutGlobalScopes()->where('tenant_id', $tenantId)->orderBy('id')->get()->toArray(),
         ];
+    });
+}
+
+/**
+ * Empties the queues the real-Redis queue tests push to and pop from, so a
+ * job left over from an earlier run can't be picked up in place of the one a
+ * test just queued. Only ever runs against the isolated test Redis (see
+ * phpunit.xml); refuses to touch anything else.
+ */
+function resetTestRedisQueues(): void
+{
+    $prefix = (string) config('database.redis.options.prefix');
+    $database = (string) config('database.redis.default.database');
+
+    if (! str_contains($prefix, 'testing') || $database === '0') {
+        throw new RuntimeException("Refusing to clear Redis queues outside the isolated test Redis (prefix '{$prefix}', db {$database}).");
+    }
+
+    $redis = Redis::connection();
+
+    foreach (['default', 'transactional'] as $queue) {
+        $redis->del("queues:{$queue}", "queues:{$queue}:delayed", "queues:{$queue}:reserved", "queues:{$queue}:notify");
+    }
+}
+
+function verifyUrlFor(int $userId, string $email): string
+{
+    return URL::temporarySignedRoute('verification.verify', now()->addMinutes(60), [
+        'id' => $userId,
+        'hash' => sha1($email),
+    ]);
+}
+
+function seedActiveSubscription(string $label, array $tenantOverrides = [], array $subscriptionOverrides = []): array
+{
+    $tenantId = (string) Str::uuid();
+    $email = strtolower(str_replace(' ', '', $label)).'-'.uniqid().'@example.com';
+
+    return DB::transaction(function () use ($tenantId, $label, $email, $tenantOverrides, $subscriptionOverrides) {
+        DB::statement('SELECT set_config(?, ?, true)', ['app.current_tenant_id', $tenantId]);
+
+        $tenant = new Tenant(array_merge([
+            'name' => "{$label} Co",
+            'type' => 'customer',
+            'plan' => 'standard',
+            'status' => 'active',
+            'billing_interval' => 'monthly',
+        ], $tenantOverrides));
+        $tenant->id = $tenantId;
+        $tenant->save();
+
+        $user = new User([
+            'name' => "{$label} Owner",
+            'email' => $email,
+            'password' => Hash::make('correct-horse-battery-staple'),
+        ]);
+        $user->tenant_id = $tenantId;
+        $user->role = 'owner';
+        $user->save();
+
+        $subscription = new Subscription(array_merge([
+            'billable_id' => $user->id,
+            'billable_type' => User::class,
+            'type' => 'default',
+            'paddle_id' => 'sub_'.Str::random(14),
+            'status' => Subscription::STATUS_ACTIVE,
+            'renews_at' => now()->addDays(10),
+            'ends_at' => null,
+        ], $subscriptionOverrides));
+        $subscription->tenant_id = $tenantId;
+        $subscription->save();
+
+        return [$tenantId, $email, $subscription];
     });
 }

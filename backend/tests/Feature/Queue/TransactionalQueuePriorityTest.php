@@ -52,6 +52,7 @@ use Illuminate\Support\Facades\Queue;
  * connection.
  */
 beforeEach(function () {
+    resetTestRedisQueues();
     config(['queue.default' => 'redis']);
     config(['mail.default' => 'array']);
     app('mail.manager')->mailer('array')->getSymfonyTransport()->flush();

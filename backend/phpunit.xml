@@ -25,6 +25,10 @@
         <env name="CACHE_STORE" value="array"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
+        <!-- Several queue tests use the real Redis connection; keep them off the dev app's database and keys. -->
+        <env name="REDIS_DB" value="14"/>
+        <env name="REDIS_CACHE_DB" value="15"/>
+        <env name="REDIS_PREFIX" value="reviewengine-testing-"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>

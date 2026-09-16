@@ -1,13 +1,10 @@
 <?php
 
 use App\Models\Subscription;
-use App\Models\Tenant;
 use App\Models\User;
 use App\Notifications\SubscriptionRenewalReminder;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
-use Illuminate\Support\Str;
 
 /**
  * .claude/BILLING.md "Renewal reminders", rebuilt against
@@ -22,49 +19,6 @@ use Illuminate\Support\Str;
  * the installed package's real constants), not the previous processor's
  * STATUS_CANCELLED.
  */
-function seedActiveSubscription(string $label, array $tenantOverrides = [], array $subscriptionOverrides = []): array
-{
-    $tenantId = (string) Str::uuid();
-    $email = strtolower(str_replace(' ', '', $label)).'-'.uniqid().'@example.com';
-
-    return DB::transaction(function () use ($tenantId, $label, $email, $tenantOverrides, $subscriptionOverrides) {
-        DB::statement('SELECT set_config(?, ?, true)', ['app.current_tenant_id', $tenantId]);
-
-        $tenant = new Tenant(array_merge([
-            'name' => "{$label} Co",
-            'type' => 'customer',
-            'plan' => 'standard',
-            'status' => 'active',
-            'billing_interval' => 'monthly',
-        ], $tenantOverrides));
-        $tenant->id = $tenantId;
-        $tenant->save();
-
-        $user = new User([
-            'name' => "{$label} Owner",
-            'email' => $email,
-            'password' => Hash::make('correct-horse-battery-staple'),
-        ]);
-        $user->tenant_id = $tenantId;
-        $user->role = 'owner';
-        $user->save();
-
-        $subscription = new Subscription(array_merge([
-            'billable_id' => $user->id,
-            'billable_type' => User::class,
-            'type' => 'default',
-            'paddle_id' => 'sub_'.Str::random(14),
-            'status' => Subscription::STATUS_ACTIVE,
-            'renews_at' => now()->addDays(10),
-            'ends_at' => null,
-        ], $subscriptionOverrides));
-        $subscription->tenant_id = $tenantId;
-        $subscription->save();
-
-        return [$tenantId, $email, $subscription];
-    });
-}
-
 function subscriptionFresh(string $tenantId, int $subscriptionId): Subscription
 {
     return DB::transaction(function () use ($tenantId, $subscriptionId) {
