@@ -112,6 +112,7 @@ test('reconnecting resets the alert marker so a future revocation alerts again',
         ->assertOk();
     $token = $login->json('data.token');
 
+    Http::fake(['oauth2.googleapis.com/token' => Http::response(['error' => 'invalid_grant'], 400)]);
     $connectResponse = test()->withHeader('Authorization', "Bearer {$token}")->getJson('/api/v1/gbp/connect');
     parse_str(parse_url($connectResponse->json('data.redirect_url'), PHP_URL_QUERY), $params);
 

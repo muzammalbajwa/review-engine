@@ -6,10 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Models\GbpConnection;
 use App\Services\Gbp\GbpOAuthState;
 use App\Services\Gbp\GoogleBusinessProfileClient;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Laravel\Socialite\Facades\Socialite;
 
@@ -70,8 +73,8 @@ class GbpController extends Controller
     {
         // Socialite happily builds a URL with a blank client_id; Google then
         // shows the user its own raw error page instead of anything we control.
-        if (! $this->googleOAuthConfigured()) {
-            Log::error('GBP connect attempted but Google OAuth credentials are not configured');
+        if (! $this->googleOAuthConfigured() || $this->googleRejectsOAuthClient()) {
+            Log::error('GBP connect attempted but Google OAuth credentials are missing or rejected by Google');
 
             return response()->json([
                 'error' => 'gbp_not_configured',
@@ -109,6 +112,52 @@ class GbpController extends Controller
         return $clientId !== ''
             && $clientSecret !== ''
             && filter_var($redirect, FILTER_VALIDATE_URL) !== false;
+    }
+
+    /**
+     * A wrong client ID or secret only surfaces on Google's own consent
+     * page ("Error 401: invalid_client"). Exchanging a dummy code at the
+     * token endpoint tells us first: Google answers invalid_client for bad
+     * credentials and invalid_grant (the dummy code) for good ones. It can't
+     * catch a redirect URI missing from the Google console; that is only
+     * checked during the real consent flow.
+     */
+    private function googleRejectsOAuthClient(): bool
+    {
+        $clientId = (string) config('services.google.client_id');
+        $clientSecret = (string) config('services.google.client_secret');
+        $cacheKey = 'gbp:oauth-client-check:'.hash('sha256', $clientId."\0".$clientSecret);
+
+        $cached = Cache::get($cacheKey);
+
+        if ($cached !== null) {
+            return $cached === 'rejected';
+        }
+
+        try {
+            $response = Http::asForm()->connectTimeout(3)->timeout(5)->post('https://oauth2.googleapis.com/token', [
+                'client_id' => $clientId,
+                'client_secret' => $clientSecret,
+                'code' => 'reviewengine-credential-check',
+                'grant_type' => 'authorization_code',
+                'redirect_uri' => config('services.google.redirect'),
+            ]);
+        } catch (ConnectionException $e) {
+            // Can't tell either way; let the user continue to Google as before.
+            Log::warning('Could not reach Google to check OAuth client credentials', ['error' => $e->getMessage()]);
+
+            return false;
+        }
+
+        $rejected = $response->json('error') === 'invalid_client';
+
+        if ($rejected) {
+            Log::error('Google rejected the configured OAuth client', ['error_description' => $response->json('error_description')]);
+        }
+
+        Cache::put($cacheKey, $rejected ? 'rejected' : 'accepted', now()->addMinutes(10));
+
+        return $rejected;
     }
 
     /**

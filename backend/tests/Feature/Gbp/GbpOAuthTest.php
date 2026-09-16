@@ -3,6 +3,7 @@
 use App\Models\GbpConnection;
 use App\Services\Gbp\GoogleBusinessProfileClient;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Laravel\Socialite\Facades\Socialite;
 use Laravel\Socialite\Two\User as SocialiteUser;
 
@@ -29,11 +30,33 @@ function registerAndGetToken(string $label): array
 
 function fakeSocialiteUser(?string $refreshToken = '1//fake-refresh-token'): SocialiteUser
 {
-    return (new SocialiteUser())
+    return (new SocialiteUser)
         ->setToken('ya29.fake-access-token')
         ->setRefreshToken($refreshToken)
         ->setExpiresIn(3600);
 }
+
+/**
+ * GbpController::connect() checks the configured client with Google's token
+ * endpoint first. Tests pick Google's answer via $this->googleClientCheck:
+ * 'invalid_grant' (credentials fine), 'invalid_client' (rejected), or
+ * 'unreachable'.
+ */
+beforeEach(function () {
+    Http::preventStrayRequests();
+    $this->googleClientCheck = 'invalid_grant';
+    $this->googleClientCheckCalls = 0;
+
+    Http::fake(['oauth2.googleapis.com/token' => function () {
+        $this->googleClientCheckCalls++;
+
+        return match ($this->googleClientCheck) {
+            'invalid_client' => Http::response(['error' => 'invalid_client', 'error_description' => 'The OAuth client was not found.'], 401),
+            'unreachable' => Http::failedConnection('cURL error 28: Connection timed out'),
+            default => Http::response(['error' => 'invalid_grant', 'error_description' => 'Malformed auth code.'], 400),
+        };
+    }]);
+});
 
 test('connect requires authentication', function () {
     $this->getJson('/api/v1/gbp/connect')->assertUnauthorized();
@@ -71,6 +94,54 @@ test('connect returns a friendly 503 instead of a Google URL when OAuth credenti
     'null client secret' => ['services.google.client_secret', null],
     'invalid redirect uri' => ['services.google.redirect', 'not-a-url'],
 ]);
+
+test('connect returns the friendly 503 when Google rejects the configured client, and caches that verdict', function () {
+    [$token] = registerAndGetToken('Connect Rejected Client');
+    $this->googleClientCheck = 'invalid_client';
+
+    foreach ([1, 2] as $_) {
+        $response = $this->withHeader('Authorization', "Bearer {$token}")->getJson('/api/v1/gbp/connect');
+
+        $response->assertStatus(503)
+            ->assertJsonPath('error', 'gbp_not_configured')
+            ->assertJsonMissingPath('data.redirect_url');
+    }
+
+    expect($this->googleClientCheckCalls)->toBe(1);
+});
+
+test('connect checks the client again once the credentials change', function () {
+    [$token] = registerAndGetToken('Connect Fixed Client');
+    $this->googleClientCheck = 'invalid_client';
+    $this->withHeader('Authorization', "Bearer {$token}")->getJson('/api/v1/gbp/connect')->assertStatus(503);
+
+    config(['services.google.client_id' => 'corrected-client-id']);
+    $this->googleClientCheck = 'invalid_grant';
+
+    $this->withHeader('Authorization', "Bearer {$token}")->getJson('/api/v1/gbp/connect')->assertOk();
+    expect($this->googleClientCheckCalls)->toBe(2);
+});
+
+test('connect still sends the user to Google when the credential check itself cannot reach Google', function () {
+    [$token] = registerAndGetToken('Connect Check Unreachable');
+    $this->googleClientCheck = 'unreachable';
+
+    $response = $this->withHeader('Authorization', "Bearer {$token}")->getJson('/api/v1/gbp/connect');
+
+    $response->assertOk();
+    expect($response->json('data.redirect_url'))->toContain('accounts.google.com');
+});
+
+test('the credential check sends the configured client and a dummy code, never a real one', function () {
+    [$token] = registerAndGetToken('Connect Check Request');
+
+    $this->withHeader('Authorization', "Bearer {$token}")->getJson('/api/v1/gbp/connect')->assertOk();
+
+    Http::assertSent(fn ($request) => $request->url() === 'https://oauth2.googleapis.com/token'
+        && $request['client_id'] === config('services.google.client_id')
+        && $request['grant_type'] === 'authorization_code'
+        && $request['code'] === 'reviewengine-credential-check');
+});
 
 test('callback with no state is rejected without creating a connection', function () {
     $response = $this->get('/api/v1/gbp/callback');
