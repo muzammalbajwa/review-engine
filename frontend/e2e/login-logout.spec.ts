@@ -33,10 +33,12 @@ test("a user can log in, sees a working logout affordance, and logging out actua
   await page.locator("#password").fill(tenant.password);
   await page.getByRole("button", { name: "Log in" }).click();
 
-  // Login redirects to /dashboard, which itself redirects an
-  // onboarding-incomplete tenant to /onboarding — either intermediate is
-  // fine, only the destination matters for this assertion.
-  await expect(page).toHaveURL(/\/(dashboard|onboarding)/, { timeout: 15_000 });
+  // Login redirects to /dashboard, which then redirects this
+  // onboarding-incomplete tenant to /onboarding. Wait for that final page:
+  // navigating away while the second redirect is still in flight aborts
+  // the next page.goto (seen on a cold dev server in CI).
+  await expect(page).toHaveURL(/\/onboarding/, { timeout: 15_000 });
+  await page.waitForLoadState("load");
 
   await page.goto("/settings");
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
