@@ -39,6 +39,8 @@
 # General build/dep artifacts
 node_modules/
 vendor/
+# Published Laravel mail templates/theme, not a dependency directory.
+!backend/resources/views/vendor/
 dist/
 build/
 *.log

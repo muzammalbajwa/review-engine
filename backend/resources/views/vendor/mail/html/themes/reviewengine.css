@@ -1,0 +1,311 @@
+/**
+ * frontend/DESIGN.md, carried into email. Same token roles as the app's
+ * own CSS custom properties, just as literal hex — email clients don't
+ * reliably support CSS custom properties, so this restates the values
+ * directly rather than trying to share the token file. Structure/selectors
+ * are Laravel's own default theme (`vendor:publish --tag=laravel-mail`)
+ * unchanged; only colors/radius/type roles were remapped. config/mail.php's
+ * `markdown.theme` points every MailMessage-based notification at this
+ * theme app-wide — no per-notification `->theme()` call needed, and none
+ * of the existing notification classes had to change.
+ */
+
+/* Base */
+
+body,
+body *:not(html):not(style):not(br):not(tr):not(code) {
+    box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
+        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    position: relative;
+}
+
+body {
+    -webkit-text-size-adjust: none;
+    background-color: #F5F6F2; /* --background */
+    color: #1E2A22; /* --foreground */
+    height: 100%;
+    line-height: 1.4;
+    margin: 0;
+    padding: 0;
+    width: 100% !important;
+}
+
+p,
+ul,
+ol,
+blockquote {
+    line-height: 1.4;
+    text-align: start;
+}
+
+a {
+    color: #2F6F4E; /* --primary — links share the brand accent, DESIGN.md's Color table */
+}
+
+a img {
+    border: none;
+}
+
+/* Typography */
+
+h1 {
+    color: #1E2A22; /* --foreground */
+    font-size: 18px;
+    font-weight: bold;
+    margin-top: 0;
+    text-align: start;
+}
+
+h2 {
+    font-size: 16px;
+    font-weight: bold;
+    margin-top: 0;
+    text-align: start;
+}
+
+h3 {
+    font-size: 14px;
+    font-weight: bold;
+    margin-top: 0;
+    text-align: left;
+}
+
+p {
+    font-size: 16px;
+    line-height: 1.5em;
+    margin-top: 0;
+    text-align: left;
+}
+
+p.sub {
+    font-size: 12px;
+}
+
+img {
+    max-width: 100%;
+}
+
+/* Layout */
+
+.wrapper {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 100%;
+    background-color: #F5F6F2; /* --background */
+    margin: 0;
+    padding: 0;
+    width: 100%;
+}
+
+.content {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 100%;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+}
+
+/* Header */
+
+.header {
+    padding: 25px 0;
+    text-align: center;
+}
+
+.header a {
+    color: #1E2A22; /* --foreground — the wordmark, not a link */
+    font-size: 19px;
+    font-weight: bold;
+    text-decoration: none;
+}
+
+/* Logo */
+
+.logo {
+    height: 75px;
+    margin-top: 15px;
+    margin-bottom: 10px;
+    max-height: 75px;
+    width: 75px;
+}
+
+/* Body */
+
+.body {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 100%;
+    background-color: #F5F6F2; /* --background */
+    border-bottom: 1px solid #F5F6F2;
+    border-top: 1px solid #F5F6F2;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+}
+
+.inner-body {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 570px;
+    background-color: #FFFFFF; /* --card */
+    border-color: #EDEFEA; /* --border */
+    border-radius: 12px; /* DESIGN.md's --radius (14px) rounded/approachable spirit */
+    border-width: 1px;
+    box-shadow: 0 1px 3px 0 rgba(30, 42, 34, 0.08), 0 1px 2px -1px rgba(30, 42, 34, 0.08);
+    margin: 0 auto;
+    padding: 0;
+    width: 570px;
+}
+
+.inner-body a {
+    word-break: break-all;
+}
+
+/* Subcopy */
+
+.subcopy {
+    border-top: 1px solid #EDEFEA; /* --border */
+    margin-top: 25px;
+    padding-top: 25px;
+}
+
+.subcopy p {
+    font-size: 14px;
+}
+
+/* Footer */
+
+.footer {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 570px;
+    margin: 0 auto;
+    padding: 0;
+    text-align: center;
+    width: 570px;
+}
+
+.footer p {
+    color: #5B6B5E; /* muted moss-gray — no separate muted-foreground token in DESIGN.md, kept in the same green-gray family as --foreground rather than a generic zinc gray */
+    font-size: 12px;
+    text-align: center;
+}
+
+.footer a {
+    color: #5B6B5E;
+    text-decoration: underline;
+}
+
+/* Tables */
+
+.table table {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 100%;
+    margin: 30px auto;
+    width: 100%;
+}
+
+.table th {
+    border-bottom: 1px solid #EDEFEA; /* --border */
+    margin: 0;
+    padding-bottom: 8px;
+}
+
+.table td {
+    color: #1E2A22; /* --foreground */
+    font-size: 15px;
+    line-height: 18px;
+    margin: 0;
+    padding: 10px 0;
+}
+
+.content-cell {
+    max-width: 100vw;
+    padding: 32px;
+}
+
+/* Buttons */
+
+.action {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 100%;
+    margin: 30px auto;
+    padding: 0;
+    text-align: center;
+    width: 100%;
+    float: unset;
+}
+
+.button {
+    -webkit-text-size-adjust: none;
+    border-radius: 8px; /* DESIGN.md's rounded/approachable radius, scaled down for a smaller element */
+    color: #fff;
+    display: inline-block;
+    overflow: hidden;
+    text-decoration: none;
+}
+
+.button-blue,
+.button-primary {
+    background-color: #2F6F4E; /* --primary */
+    border-bottom: 8px solid #2F6F4E;
+    border-left: 18px solid #2F6F4E;
+    border-right: 18px solid #2F6F4E;
+    border-top: 8px solid #2F6F4E;
+}
+
+.button-green,
+.button-success {
+    /* --success is the SAME moss green as --primary in DESIGN.md
+       ("One color for both roles, not two") — not a second hex. */
+    background-color: #2F6F4E;
+    border-bottom: 8px solid #2F6F4E;
+    border-left: 18px solid #2F6F4E;
+    border-right: 18px solid #2F6F4E;
+    border-top: 8px solid #2F6F4E;
+}
+
+.button-red,
+.button-error {
+    background-color: #B3432B; /* --destructive — reserved, real errors only, same rule as the app */
+    border-bottom: 8px solid #B3432B;
+    border-left: 18px solid #B3432B;
+    border-right: 18px solid #B3432B;
+    border-top: 8px solid #B3432B;
+}
+
+/* Panels */
+
+.panel {
+    border-left: #C99A3E solid 4px; /* --secondary / --warning — "needs attention but nothing is broken" */
+    margin: 21px 0;
+}
+
+.panel-content {
+    background-color: #EDEFEA; /* --muted */
+    color: #1E2A22; /* --foreground */
+    padding: 16px;
+}
+
+.panel-content p {
+    color: #1E2A22;
+}
+
+.panel-item {
+    padding: 0;
+}
+
+.panel-item p:last-of-type {
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+/* Utilities */
+
+.break-all {
+    word-break: break-all;
+}
