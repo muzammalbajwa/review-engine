@@ -72,17 +72,18 @@ class VerifyEmailAddress extends VerifyEmail implements ShouldQueue
     ) {
         // QA-audit fix (Finding 5): a dedicated, higher-priority queue —
         // never the 'default' one App\Jobs\SendReviewRequest's bulk drip
-        // retries also live on. Workers run --queue=transactional,default
-        // (config/horizon.php, composer.json's dev script) specifically
-        // so a backlog of low-value retries can never delay this. See
-        // .claude/QUEUE.md's "Queue priority" section for the full
-        // rationale — every notification in this "transactional" bucket
-        // (VerifyEmailAddress, WelcomeEmail, GbpConnectionRevoked,
+        // retries also live on. Horizon gives 'transactional' its own
+        // worker pool, and `queue:work --queue=transactional,default`
+        // checks it first, so a backlog of low-value retries can never
+        // delay this. See .claude/QUEUE.md's "Queue priority" section for
+        // the full rationale — every notification in this "transactional"
+        // bucket (VerifyEmailAddress, WelcomeEmail, GbpConnectionRevoked,
         // SubscriptionRenewalReminder, TeamInviteReceived,
-        // VerifySenderIdentity) sets this same queue name in its own
-        // constructor, deliberately not centralized into one shared trait
-        // — each of these already has (or needed) its own constructor for
-        // unrelated reasons, and six one-line calls are less machinery
+        // VerifySenderIdentity, ReviewRequestSendFailed) sets this same
+        // queue name in its own constructor, deliberately not centralized
+        // into one shared trait — each of these already has (or needed)
+        // its own constructor for unrelated reasons, and one-line calls
+        // are less machinery
         // than a trait whose only job is running inside a constructor
         // some of these classes don't otherwise have.
         $this->onQueue('transactional');

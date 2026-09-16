@@ -198,24 +198,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Queue priority — transactional before default
+    | Queue priority — transactional kept separate from default
     |--------------------------------------------------------------------------
     |
-    | QA-audit fix (Finding 5): 'transactional' listed before 'default' —
-    | order matters here the same way it does for `queue:work
-    | --queue=transactional,default` (composer.json's own dev script uses
-    | that exact flag): a worker always checks the first queue for a job
-    | before moving on to the next, so 'transactional' fully drains before
-    | 'default' is touched at all. Every account-critical notification
+    | Every account-critical or time-sensitive notification
     | (VerifyEmailAddress, WelcomeEmail, GbpConnectionRevoked,
-    | SubscriptionRenewalReminder, TeamInviteReceived,
-    | VerifySenderIdentity — see each one's own constructor) declares
-    | ->onQueue('transactional'); everything else, including
-    | App\Jobs\SendReviewRequest's bulk drip sends/retries, stays on
-    | 'default'. Without this, a backlog of low-value drip retries
-    | (unbounded before this same fix — see SendReviewRequest's own
-    | MAX_SKIP_RETRIES) could delay a tenant's own account email behind
-    | every other tenant's backlog, on the one shared worker pool.
+    | SubscriptionRenewalReminder, TeamInviteReceived, VerifySenderIdentity,
+    | ReviewRequestSendFailed) declares ->onQueue('transactional');
+    | everything else, including App\Jobs\SendReviewRequest's bulk drip
+    | sends/retries, stays on 'default'.
+    |
+    | With 'balance' => 'auto' (below), Horizon does NOT treat the order of
+    | 'queue' as a priority. It runs a separate worker pool per queue, each
+    | with at least 'minProcesses' (default 1) process, and scales the pools
+    | by workload, so 'transactional' always has a dedicated worker that a
+    | 'default' backlog can't delay. The listed order only acts as a strict
+    | priority for a single worker, i.e. `queue:work
+    | --queue=transactional,default` (composer.json's dev script) or
+    | 'balance' => false. See .claude/QUEUE.md "Queue priority".
     |
     */
 

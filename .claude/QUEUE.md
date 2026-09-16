@@ -35,26 +35,42 @@ second language/service. Laravel Queues + Horizon do everything we need.
   alert (App\Notifications\ReviewRequestSendFailed) a genuine exception
   would.
 
-## Queue priority — transactional before default
+## Queue priority — transactional kept separate from default
 Two named queues on the same Redis connection, not one:
-- `transactional` — every account-critical notification: email
-  verification, welcome, team invites, sender-identity verification, GBP
-  disconnect alerts, subscription renewal reminders. Each of these sets
+- `transactional` — every account-critical or time-sensitive
+  notification: email verification, welcome, team invites,
+  sender-identity verification, GBP disconnect alerts, subscription
+  renewal reminders, and the ops alert for a permanently failed review
+  request (ReviewRequestSendFailed). Each of these sets
   `->onQueue('transactional')` in its own constructor (see
   App\Notifications\VerifyEmailAddress for the full rationale).
 - `default` — everything else, including SendReviewRequest's bulk sends
   and its own self-requeuing retries.
 
-Workers run `--queue=transactional,default` (composer.json's `dev`
-script; config/horizon.php's default supervisor lists the same two
-queues in the same order) — a worker always checks the first queue
-listed for a job before moving to the next, so `transactional` fully
-drains before `default` is touched. Without this, a backlog of
-low-value drip retries for one tenant's badly-set-up contacts could
-delay a completely different tenant's account email on the one shared
-worker pool — a real, observed risk before both this and the retry cap
-above were added (a QA audit found a verification-email job sitting
-behind dozens of drip-retry jobs in the live Redis queue).
+How `transactional` stays ahead depends on what runs the workers:
+- **`queue:work --queue=transactional,default`** (composer.json's `dev`
+  script): one worker checks the queues in the order listed before each
+  job, so every waiting `transactional` job is taken before any
+  `default` job. Strict priority on a single worker.
+- **Horizon (production)**: config/horizon.php's supervisor lists both
+  queues with `balance => 'auto'`. Under auto-balancing Horizon does not
+  use the listed order as a priority; it runs a separate worker pool per
+  queue, each with at least `minProcesses` (default 1) process, and
+  scales the pools by workload. `transactional` therefore always has at
+  least one dedicated worker that never picks up `default` jobs, however
+  large the `default` backlog. Verified live on 2026-09-16: `ps` showed
+  one `horizon:work --queue=transactional` process next to the
+  `--queue=default` ones, and a verification email queued behind 3,000
+  drip jobs was delivered in about 2.6s. If `balance` is ever set to
+  `false`, Horizon falls back to the single-worker listed-order behaviour
+  above.
+
+Without this split, a backlog of low-value drip retries for one tenant's
+badly-set-up contacts could delay a completely different tenant's
+account email on the shared workers — a real, observed risk before both
+this and the retry cap above were added (a QA audit found a
+verification-email job sitting behind dozens of drip-retry jobs in the
+live Redis queue).
 
 ## Monitoring
 - Horizon dashboard for queue health.

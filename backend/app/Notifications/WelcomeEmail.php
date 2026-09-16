@@ -30,7 +30,7 @@ class WelcomeEmail extends Notification implements ShouldQueue
         private readonly bool $onboardingCompleted,
     ) {
         // QA-audit fix (Finding 5): dedicated 'transactional' queue,
-        // drained before 'default' — see VerifyEmailAddress's own
+        // kept clear of the 'default' backlog — see VerifyEmailAddress's own
         // constructor for the full rationale, shared by every
         // notification in this bucket.
         $this->onQueue('transactional');
