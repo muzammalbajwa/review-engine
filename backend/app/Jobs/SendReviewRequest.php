@@ -79,11 +79,18 @@ class SendReviewRequest implements ShouldQueue
      */
     public const MAX_SKIP_RETRIES = 168;
 
+    // Not constructor-promoted/readonly on purpose: unserialize() skips the
+    // constructor, so payloads queued before this property existed would
+    // leave a promoted one uninitialized. A declared default survives that.
+    public int $skipRetryCount = 0;
+
     public function __construct(
         public readonly int $contactId,
         public readonly int $step = 1,
-        public readonly int $skipRetryCount = 0,
-    ) {}
+        int $skipRetryCount = 0,
+    ) {
+        $this->skipRetryCount = $skipRetryCount;
+    }
 
     public function middleware(): array
     {
@@ -112,7 +119,10 @@ class SendReviewRequest implements ShouldQueue
         $plan = $this->withTenantContext($tenantId, fn () => $this->prepare($tenantId));
 
         if ($plan['action'] === 'redelay') {
-            self::dispatch($this->contactId, $this->step)->delay(now()->addMinutes($plan['delay_minutes']));
+            // Carry the count through: a closed-hours wait isn't a new attempt,
+            // and resetting here meant the cap was never reached on normal hours.
+            self::dispatch($this->contactId, $this->step, $this->skipRetryCount)
+                ->delay(now()->addMinutes($plan['delay_minutes']));
 
             return;
         }

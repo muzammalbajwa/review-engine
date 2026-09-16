@@ -8,6 +8,7 @@ use App\Models\Message;
 use App\Models\Template;
 use App\Models\TimingRule;
 use App\Notifications\ReviewRequestSendFailed;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -156,6 +157,36 @@ test('QA-audit fix (Finding 5): a skip-and-retry one step below the cap still re
     );
 });
 
+test('a payload queued before skipRetryCount existed unserializes with 0 and still skips-and-retries instead of crashing', function () {
+    [$token, $tenantId] = seedCustomerAccount('Legacy Payload');
+    makeVerifiedSenderIdentity($tenantId);
+    makeConnectedGbpConnection($tenantId);
+    setTenantBusinessHoursWideOpen($tenantId);
+
+    $response = test()->withHeader('Authorization', "Bearer {$token}")
+        ->postJson('/api/v1/contacts/quick-add', ['name' => 'Queued Pre-Deploy', 'phone' => '+15555550100'])
+        ->assertCreated();
+    $contactId = $response->json('data.id');
+
+    // Exactly what the pre-951f883 code serialized: no skipRetryCount key.
+    $class = SendReviewRequest::class;
+    $legacy = sprintf('O:%d:"%s":2:{s:9:"contactId";i:%d;s:4:"step";i:2;}', strlen($class), $class, $contactId);
+
+    $job = unserialize($legacy);
+
+    expect($job->skipRetryCount)->toBe(0);
+
+    Mail::fake();
+    Bus::fake([SendReviewRequest::class]);
+
+    $job->handle();
+
+    Bus::assertDispatched(
+        SendReviewRequest::class,
+        fn (SendReviewRequest $next) => $next->contactId === $contactId && $next->step === 2 && $next->skipRetryCount === 1
+    );
+});
+
 test('QA-audit fix (Finding 5): a skip-and-retry AT the cap gives up instead of requeuing forever', function () {
     [$token, $tenantId] = seedCustomerAccount('At The Cap');
     makeVerifiedSenderIdentity($tenantId);
@@ -174,6 +205,60 @@ test('QA-audit fix (Finding 5): a skip-and-retry AT the cap gives up instead of 
 
     // The whole point: no self-requeue once the cap is reached — this is
     // what used to run forever, once an hour, indefinitely.
+    Bus::assertNotDispatched(SendReviewRequest::class);
+});
+
+test('the skip-retry count survives a closed-hours re-delay, so the cap is still reached on default business hours', function () {
+    [$token, $tenantId] = seedCustomerAccount('Default Hours Cap');
+    makeVerifiedSenderIdentity($tenantId);
+    makeConnectedGbpConnection($tenantId);
+    // No timing rule seeded: the job creates TimingRule::findOrCreateDefault().
+
+    $response = test()->withHeader('Authorization', "Bearer {$token}")
+        ->postJson('/api/v1/contacts/quick-add', ['name' => 'Never Resolves', 'phone' => '+15555550100'])
+        ->assertCreated();
+    $contactId = $response->json('data.id');
+
+    Mail::fake();
+
+    // Wednesday 17:30 in New York: open, and the next hourly retry lands after close.
+    $this->travelTo(CarbonImmutable::parse('2026-09-16 17:30:00', 'America/New_York'));
+
+    $job = new SendReviewRequest($contactId, 1, SendReviewRequest::MAX_SKIP_RETRIES - 2);
+    $hops = [];
+
+    for ($i = 0; $i < 10; $i++) {
+        Bus::fake([SendReviewRequest::class]);
+        $job->withFakeQueueInteractions()->handle();
+
+        $next = Bus::dispatched(SendReviewRequest::class)->first();
+
+        if ($next === null) {
+            break;
+        }
+
+        $hops[] = [now('America/New_York')->format('D H:i'), $job->skipRetryCount, $next->skipRetryCount];
+        $this->travelTo($next->delay);
+        $job = $next;
+    }
+
+    $rule = DB::transaction(function () use ($tenantId) {
+        DB::statement('SELECT set_config(?, ?, true)', ['app.current_tenant_id', $tenantId]);
+
+        return TimingRule::query()->first();
+    });
+    expect([$rule->business_hours_start, $rule->business_hours_end, $rule->timezone])
+        ->toBe(['09:00:00', '18:00:00', 'America/New_York']);
+
+    expect($hops)->toBe([
+        ['Wed 17:30', 166, 167],
+        // Closed at 18:30: re-delayed to the next opening with the count intact.
+        ['Wed 18:30', 167, 167],
+        ['Thu 09:00', 167, 168],
+    ]);
+
+    expect(now('America/New_York')->format('D H:i'))->toBe('Thu 10:00');
+    $job->assertFailed();
     Bus::assertNotDispatched(SendReviewRequest::class);
 });
 
