@@ -271,15 +271,38 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
           script: |
-            cd /home/doorplaning.co.uk/reviewengine-monorepo
+            cd /home/doorplaning.co.uk/reviewengine-monorepo || exit 1
             git pull origin main
-            cd backend
+            cd backend || exit 1
             /usr/local/lsws/lsphp83/bin/php /usr/local/bin/composer install --no-dev --optimize-autoloader --no-interaction
             /usr/local/lsws/lsphp83/bin/php artisan migrate --force --database=pgsql_owner
             /usr/local/lsws/lsphp83/bin/php artisan config:cache
             /usr/local/lsws/lsphp83/bin/php artisan route:cache
             /usr/local/lsws/lsphp83/bin/php artisan view:cache
             chown -R doorp2181:nobody /home/doorplaning.co.uk/reviewengine-monorepo/backend
+            # Long-running workers keep the old code and queue list in memory
+            # until restarted. Horizon may run under a process manager or via
+            # plain nohup (the documented runbook), so terminate it, give a
+            # process manager time to bring it back, and start it only if
+            # nothing did. Ends with horizon:status, which exits non-zero
+            # (failing this step) when Horizon isn't running.
+            /usr/local/lsws/lsphp83/bin/php artisan queue:restart
+            OLD_HORIZON=$(pgrep -f "artisan horizon$" || true)
+            /usr/local/lsws/lsphp83/bin/php artisan horizon:terminate
+            for _ in $(seq 1 60); do
+              ALIVE=""
+              for PID in $OLD_HORIZON; do kill -0 "$PID" 2>/dev/null && ALIVE=1; done
+              [ -z "$ALIVE" ] && break
+              sleep 1
+            done
+            sleep 15
+            if ! pgrep -f "artisan horizon$" > /dev/null; then
+              echo "No process manager restarted Horizon; starting it."
+              $(command -v setsid) nohup /usr/local/lsws/lsphp83/bin/php artisan horizon < /dev/null >> storage/logs/horizon.log 2>&1 &
+              sleep 10
+            fi
+            pgrep -af "artisan horizon$"
+            /usr/local/lsws/lsphp83/bin/php artisan horizon:status
 
   deploy-frontend:
     needs: deploy-backend
