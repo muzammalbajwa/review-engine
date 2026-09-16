@@ -1,0 +1,9 @@
+tenant 636b5815-913c-4e58-a6a9-3696c2c2f62a timing rule: 09:00:00-18:00:00 America/New_York (MAX_SKIP_RETRIES=168)
+dispatched contact 743 step 1 with skipRetryCount=165
+  hop: requeued with skipRetryCount=166, due Wed 18:29 (OUTSIDE hours)
+  hop: requeued with skipRetryCount=166, due Thu 08:59 (OUTSIDE hours)
+  hop: requeued with skipRetryCount=167, due Thu 10:08 (inside hours)
+  hop: requeued with skipRetryCount=168, due Thu 11:09 (inside hours)
+TERMINATED: failed_jobs id=4491 (virtual failed_at 2026-09-17 15:10:26 UTC)
+  Illuminate\Queue\ManuallyFailedException: SendReviewRequest gave up on contact 743 step 1 after 168 retries over roughly a week — still blocked on: contact_has_no_email in /Users/wasiq/Desktop/development/code/ReviewEngine/backend/vendor/laravel/framework/src/Illuminate/Queue/InteractsWithQueue.php:56
+jobs still queued for contact 743 afterwards: 0

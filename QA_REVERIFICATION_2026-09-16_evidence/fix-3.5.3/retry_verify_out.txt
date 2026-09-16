@@ -1,0 +1,39 @@
+ae144baf | 1 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+e1e6a0f3 | 2 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+44c44d43 | 3 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+85e55d69 | 4 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+d42e10a0 | 5 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+8f5ed105 | 14 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+be403bcd | 15 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+634e5b1f | 16 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+d06a73be | 18 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+7a5affca | 19 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+184b494d | 20 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+04a2d4b3 | 82 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+de9748bc | 83 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+26e9aa9e | 84 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+2cf2eb0f | 141 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+52ff97ea | 142 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+2cf70907 | 143 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+9379d150 | 202 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+4cdf733e | 203 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+7cdb3809 | 204 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+00b95125 | 263 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+a0fa2c84 | 264 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+ddbe89d3 | 265 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+26829ec0 | 266 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+7c83edaf | 274 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+3aaf58f2 | 275 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+6a8e38a7 | 276 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+d6fc24b6 | 334 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+f8f159f4 | 335 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+efe09088 | 336 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+ed5b82fd | 348 | 1 | DONE | no | no_compliance_passed_template | skipRetryCount=1 due+59m
+6027b8f6 | 358 | 1 | DONE | no | contact_has_no_email | skipRetryCount=1 due+59m
+73a8e58a | 359 | 1 | DONE | no | contact_has_no_email | skipRetryCount=1 due+59m
+6da1fd90 | 361 | 1 | DONE | no | contact_has_no_email | skipRetryCount=1 due+59m
+439a600c | 368 | 1 | DONE | no | redelayed (outside business hours) | skipRetryCount=0 due+162m
+a08b6cf5 | 692 | 2 | DONE | no | contact_has_no_email | skipRetryCount=1 due+59m
+TOTAL 36 | worker DONE only: 36 | any FAIL: 0 | still in failed_jobs: 0
+outcomes: {"redelayed (outside business hours)":31,"no_compliance_passed_template":1,"contact_has_no_email":4}
+new crash rows since retry: 0

@@ -1,0 +1,13 @@
+{
+  "f6_present": {
+    "googleHost": "accounts.google.com",
+    "client_id": "audit-placeholder.apps.googleusercontent.com",
+    "hasState": true,
+    "scope": "openid profile email https://www.googleapis.com/auth/business.manage"
+  },
+  "f7_present": {
+    "noteVisible": false,
+    "enabled": true,
+    "afterClickAlert": "Verify your email to start sending review requests.\nResend verification email | Checkout isn't available right now. Try again shortly. | "
+  }
+}

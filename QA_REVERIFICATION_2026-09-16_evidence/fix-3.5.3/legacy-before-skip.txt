@@ -1,0 +1,7 @@
+[10:13:41] legacy payload (skipRetryCount removed: 1): O:26:"App\Jobs\SendReviewRequest":3:{s:9:"contactId";i:745;s:4:"step";i:2;s:5:"queue";s:18:"audit-legacy-build";}
+[10:13:41] pushing uuid=2805e59c-3a69-42fa-8d75-c6c495bf72ae for contact 745 (legacy-after-101245@example.com) step 2 onto queues:default
+[10:13:42] attempt 1 threw -> released for retry; fast-forwarding backoff
+[10:13:43] attempt 2 threw -> released for retry; fast-forwarding backoff
+[10:13:44] RESULT: failed_jobs id=4490 uuid=2805e59c-3a69-42fa-8d75-c6c495bf72ae
+  Error: Typed property App\Jobs\SendReviewRequest::$skipRetryCount must not be accessed before initialization in /Users/wasiq/Desktop/development/code/ReviewEngine/backend/app/Jobs/SendReviewRequest.php:125
+  message(step 2) status=NULL; mails to contact: []

@@ -1,0 +1,3 @@
+[10:13:13] legacy payload (skipRetryCount removed: 1): O:26:"App\Jobs\SendReviewRequest":3:{s:9:"contactId";i:744;s:4:"step";i:2;s:5:"queue";s:18:"audit-legacy-build";}
+[10:13:13] pushing uuid=5dc2f656-74f9-40b4-b7cd-89f0018a77cc for contact 744 (legacy-before-101245@example.com) step 2 onto queues:default
+[10:13:15] RESULT: SENT. message(step 2) status=sent; mails: ["5nYMHV2pUroZmplMMeJYx8 | A message from Reverify Roofing"]

@@ -1,0 +1,20 @@
+{
+    "tenant": "7f4040cc-618d-4be0-8686-b750ecdf241c",
+    "hours": [
+        "00:00:00",
+        "23:59:59",
+        "UTC"
+    ],
+    "contact_before": {
+        "id": 744,
+        "email": "legacy-before-101245@example.com"
+    },
+    "contact_after": {
+        "id": 745,
+        "email": "legacy-after-101245@example.com"
+    },
+    "contact_fresh_after": {
+        "id": 746,
+        "email": "legacy-fresh-after-101432@example.com"
+    }
+}

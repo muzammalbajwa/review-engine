@@ -1,0 +1,33 @@
+{
+  "f3": {
+    "afterMismatch": {
+      "name": "Reverify Owner",
+      "business_name": "Reverify Roofing 1789548777227",
+      "email": "reverify-f1-1789548777227@example.com",
+      "password": "",
+      "password_confirmation": ""
+    },
+    "afterDuplicate": {
+      "name": "Reverify Owner",
+      "business_name": "Reverify Roofing 1789548777227",
+      "email": "admin@reviewengine.test",
+      "password": "",
+      "password_confirmation": ""
+    }
+  },
+  "f1": {
+    "email": "reverify-f1-1789548777227@example.com",
+    "verifyMail": {
+      "id": "1nDba0Ee2DlUvIQw1NtcCB",
+      "created": "2026-09-16T13:52:59.243+05:00",
+      "msFromSubmit": 6583
+    },
+    "verifyLinkHost": "127.0.0.1:8123",
+    "landedAfterVerify": "https://localhost:3000/settings?verified=1",
+    "welcomeMail": {
+      "id": "3mRrnC4Ckve1ByCsxxth4O",
+      "created": "2026-09-16T13:53:02.319+05:00",
+      "subject": "You're verified — welcome to ReviewEngine"
+    }
+  }
+}

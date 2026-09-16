@@ -1,0 +1,80 @@
+{
+    "f1_resend": {
+        "email": "playwright-reverify-resend-1789548798700@example.com",
+        "verifyMailCount": 2,
+        "ids": [
+            "3fYs5dB7brgaupNOL0X0aF",
+            "21wcS8TRFoUfX4Sl79g9kZ"
+        ]
+    },
+    "f4_nonadmin_tenant": {
+        "email": "playwright-reverify-resend-1789548798700@example.com",
+        "password": "correct-horse-battery-staple",
+        "businessName": "Playwright reverify-resend Co 1789548798700",
+        "token": "<redacted>",
+        "tenantId": "636b5815-913c-4e58-a6a9-3696c2c2f62a"
+    },
+    "f4": {
+        "adminUrl": "https:\/\/localhost:3000\/admin",
+        "userUrl": "https:\/\/localhost:3000\/onboarding",
+        "adminDirectDashboard": "https:\/\/localhost:3000\/admin"
+    },
+    "f2": {
+        "360": {
+            "scrollWidth": 360,
+            "clientWidth": 360,
+            "bodyScrollWidth": 360,
+            "offenders": []
+        },
+        "390": {
+            "scrollWidth": 390,
+            "clientWidth": 390,
+            "bodyScrollWidth": 390,
+            "offenders": []
+        },
+        "640": {
+            "scrollWidth": 640,
+            "clientWidth": 640,
+            "bodyScrollWidth": 640,
+            "offenders": []
+        },
+        "700": {
+            "scrollWidth": 700,
+            "clientWidth": 700,
+            "bodyScrollWidth": 700,
+            "offenders": []
+        },
+        "768": {
+            "scrollWidth": 768,
+            "clientWidth": 768,
+            "bodyScrollWidth": 768,
+            "offenders": []
+        },
+        "820": {
+            "scrollWidth": 820,
+            "clientWidth": 820,
+            "bodyScrollWidth": 820,
+            "offenders": []
+        },
+        "1024": {
+            "scrollWidth": 1024,
+            "clientWidth": 1024,
+            "bodyScrollWidth": 1024,
+            "offenders": []
+        },
+        "1280": {
+            "scrollWidth": 1280,
+            "clientWidth": 1280,
+            "bodyScrollWidth": 1280,
+            "offenders": []
+        }
+    },
+    "f6_absent": {
+        "gbpUrl": "https:\/\/localhost:3000\/gbp\/connect?error=gbp_not_configured",
+        "googleHits": []
+    },
+    "f7_absent": {
+        "note": true,
+        "disabled": true
+    }
+}

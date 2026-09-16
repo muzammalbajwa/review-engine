@@ -1,0 +1,4 @@
+[10:14:33] legacy payload (skipRetryCount removed: 0): O:26:"App\Jobs\SendReviewRequest":3:{s:9:"contactId";i:746;s:4:"step";i:2;s:5:"queue";s:18:"audit-legacy-build";}
+[10:14:33] pushing uuid=db8d9b0b-b7ba-4a29-af9a-605907004006 for contact 746 (legacy-fresh-after-101432@example.com) step 2 onto queues:default
+[10:15:18] RESULT: no failure and no send within 45s. message status=NULL
+[10:15:53] SENT: contact 746 step 2 message status=sent (updated 2026-09-16 10:15:53); mails: ["6XJrGusjxX0FUjtSrm2yFR | A message from Reverify Roofing | 2026-09-16T15:15:53.712+05:00"]
