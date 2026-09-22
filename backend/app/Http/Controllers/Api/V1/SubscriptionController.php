@@ -8,6 +8,7 @@ use App\Http\Requests\Billing\UpdateAutoRenewRequest;
 use App\Models\Tenant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Laravel\Paddle\Subscription as PaddleSubscription;
 
 /**
@@ -65,7 +66,22 @@ class SubscriptionController extends Controller
                     'tenant_id' => $tenant->id,
                 ])
                 ->returnTo("{$frontendUrl}/settings");
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            // Previously swallowed entirely — a real cause (e.g. a Paddle
+            // API key missing a required scope, live-confirmed against
+            // this exact environment during 2026-09-22's sandbox
+            // checkout verification: "not authorized to create customer")
+            // was indistinguishable from any other failure without
+            // reproducing the call by hand outside the request/response
+            // cycle. The user-facing message is unchanged — this only
+            // adds the one thing an operator needs to actually diagnose
+            // it.
+            Log::error('subscribe: checkout() failed', [
+                'tenant_id' => $tenant->id,
+                'interval' => $data['interval'],
+                'exception' => $e->getMessage(),
+            ]);
+
             return response()->json([
                 'error' => 'billing_unavailable',
                 'message' => 'Checkout isn\'t available right now. Try again shortly.',
